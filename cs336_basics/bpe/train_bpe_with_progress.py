@@ -1,6 +1,27 @@
 #!/usr/bin/env python3
 """
 训练BPE分词器在TinyStories数据集上 - 带进度条版本
+
+训练感想：
+在训练的过程中会发现 total_pair_counts 会不断增加，这个现象是合理的！
+因为在训练的初期, 合并的只有很少的pairs,但是新产生的token会产生大量新的token!
+比如这个例子:
+[DEBUG] --- MERGE STEP 1 ---
+[DEBUG] Merging pair: (b' ', b't') -> ID 257
+[DEBUG] Initial len(total_pair_counts): 932
+    (-) Pairs REMOVED (2 unique types): { (b' ', b't'), (b't', b'v') }
+    (+) Pairs ADDED   (10 unique types): { (b' t', b'a'), (b' t', b'e'), (b' t', b'h'), (b' t', b'i'), (b' t', b'o'), (b' t', b'r'), (b' t', b'u'), (b' t', b'v'), (b' t', b'w'), (b' t', b'y') }
+[DEBUG] Final len(total_pair_counts): 940
+[DEBUG] Net change in len for this step: 8  (10 added - 2 removed)
+
+可以发现, 合并了 (b' ', b't') 和 (b't', b'v') 之后, 新产生了 10 个新的token! 
+之前(b't', b'h')如果存在的话，那么有了新的token b' t'之后，就会还会产生另外一个新的pair(b' t', b'h')!
+这也就是为什么会出现一直上涨的情况
+
+这个现象完全取决于语料库的大小以及vocab_size的设定，如果vocab size设置足够大的话，一定能看到pairs的上升和下降
+
+可以使用merge_pair_debug函数来看到这个过程
+
 """
 
 import time
@@ -11,7 +32,8 @@ from multiprocessing import Pool, cpu_count
 from collections import defaultdict, Counter
 import regex as regex_mod
 import re
-from cs336_basics.bpe import train_bpe
+
+merge_step_counter = 0
 
 
 def _pretokenize_chunk_batch(chunks: list[str]) -> dict[tuple[int, ...], int]:
@@ -195,8 +217,7 @@ def train_bpe_with_progress(input_path: str, vocab_size: int, special_tokens: li
     
     print(f"🔄 开始合并循环，目标: {max_merges:,} 次合并")
     # 一次merge造就一个新的word id
-    
-    # merge的本质目标就是去更新所有的之前的存储
+
     def merge_pair(a, b, new_token):
         target = (a, b)
         # 找到包含这个pair的所有的word
@@ -272,6 +293,84 @@ def train_bpe_with_progress(input_path: str, vocab_size: int, special_tokens: li
                     pair_to_words[pair] = {i}
                 else:
                     s.add(i)
+
+    
+    # merge的本质目标就是去更新所有的之前的存储
+    def merge_pair_debug(a, b, new_token):
+        nonlocal total_pair_counts, pair_to_words, corpus_ids, word_pair_counters
+        global merge_step_counter
+        merge_step_counter += 1
+        DEBUG = True
+        
+        # 辅助函数，用于打印可读的pair
+        def pretty_print_pair(pair):
+            id1, id2 = pair
+            # 使用 .get 避免在查找特殊 token 时出错
+            byte1 = id_to_bytes.get(id1, b'??')
+            byte2 = id_to_bytes.get(id2, b'??')
+            return f"({repr(byte1)}, {repr(byte2)})"
+
+        initial_len = len(total_pair_counts)
+        # --- 审计：记录合并前的所有 unique pairs ---
+        initial_pairs_set = set(total_pair_counts.keys())
+
+        if DEBUG and merge_step_counter <= 10:
+            print(f"\n" + "="*80)
+            print(f"[DEBUG] --- MERGE STEP {merge_step_counter} ---")
+            print(f"[DEBUG] Merging pair: {pretty_print_pair((a,b))} -> ID {new_token}")
+            print(f"[DEBUG] Initial len(total_pair_counts): {initial_len}")
+
+        affected_words_indices = list(pair_to_words.get((a, b), set()))
+        
+        # --- 阶段一：更新所有受影响的词的ID序列 ---
+        for i in affected_words_indices:
+            ids = corpus_ids[i]
+            new_ids = []
+            j = 0
+            while j < len(ids):
+                if j < len(ids) - 1 and ids[j] == a and ids[j+1] == b:
+                    new_ids.append(new_token)
+                    j += 2
+                else:
+                    new_ids.append(ids[j])
+                    j += 1
+            corpus_ids[i] = new_ids
+            # 注意：我们只更新 corpus_ids，per-word counters 会在重建时自动更新
+
+        # --- 阶段二：完全基于更新后的状态，重建全局计数和索引 ---
+        total_pair_counts = defaultdict(int)
+        pair_to_words = defaultdict(set)
+        # 注意：这里的 word_pair_counters 也需要重新计算
+        for i in range(len(corpus_ids)):
+            # 重新计算 per-word counter
+            ctr = pairs_for_ids(corpus_ids[i])
+            word_pair_counters[i] = ctr
+            
+            # 累加到全局计数
+            c = corpus_counts[i]
+            for pair, k in ctr.items():
+                total_pair_counts[pair] += k * c
+                pair_to_words[pair].add(i)
+
+        final_len = len(total_pair_counts)
+        
+        # --- 审计：比较合并前后的 unique pairs 集合 ---
+        final_pairs_set = set(total_pair_counts.keys())
+        
+        removed_pairs = initial_pairs_set - final_pairs_set
+        added_pairs = final_pairs_set - initial_pairs_set
+
+        if DEBUG and merge_step_counter <= 10:
+            # 将 set 转换为 list 并排序，让输出更稳定
+            removed_list = sorted(list(removed_pairs))
+            added_list = sorted(list(added_pairs))
+
+            print(f"    (-) Pairs REMOVED ({len(removed_list)} unique types): {{ {', '.join(pretty_print_pair(p) for p in removed_list)} }}")
+            print(f"    (+) Pairs ADDED   ({len(added_list)} unique types): {{ {', '.join(pretty_print_pair(p) for p in added_list)} }}")
+            
+            print(f"[DEBUG] Final len(total_pair_counts): {final_len}")
+            print(f"[DEBUG] Net change in len for this step: {final_len - initial_len}  ({len(added_list)} added - {len(removed_list)} removed)")
+            print("="*80)
     
     # 使用tqdm显示合并进度
     with tqdm(total=max_merges, desc="合并进度", unit="合并") as pbar:
@@ -500,7 +599,7 @@ def train_bpe_tinystories_with_progress():
     """
     在TinyStories数据集上训练BPE分词器（带进度条版本）
     """
-    input_path = "./data/TinyStoriesV2-GPT4-train.txt"
+    input_path = "../../data/TinyStoriesV2-GPT4-train.txt"
     return train_bpe_with_dataset(input_path, dataset_type="tinystories")
 
 
@@ -508,7 +607,7 @@ def train_bpe_owt_with_progress():
     """
     在OpenWebText数据集上训练BPE分词器（带进度条版本）
     """
-    input_path = "./data/owt_train.txt"  # 假设的OWT路径
+    input_path = "../../data/owt_train.txt"  # 假设的OWT路径
     return train_bpe_with_dataset(input_path, dataset_type="owt")
 
 
