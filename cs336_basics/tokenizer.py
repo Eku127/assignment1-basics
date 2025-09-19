@@ -85,18 +85,49 @@ class Tokenizer:
                 line = line.strip()
                 if not line:
                     continue
-                parts = line.split()
-                if len(parts) != 2:
-                    continue
+                # 处理格式如 "b' ' b'p'" 或 "b' p' b'a'" 的情况
+                # 需要找到第一个 b' 和第二个 b' 的位置
+                if line.startswith("b'") and " b'" in line:
+                    # 找到第二个 b' 的位置
+                    second_b_pos = line.find(" b'")
+                    if second_b_pos != -1:
+                        left_part = line[:second_b_pos]
+                        right_part = line[second_b_pos + 1:]  # 去掉开头的空格
+                    else:
+                        continue
+                else:
+                    # 处理普通格式 "b'th' b'e'"
+                    parts = line.split()
+                    if len(parts) != 2:
+                        continue
+                    left_part = parts[0]
+                    right_part = parts[1]
+                
                 # 使用 ast.literal_eval 将 b'..' 的repr 转回 bytes
-                left = ast.literal_eval(parts[0])
-                right = ast.literal_eval(parts[1])
-                if not isinstance(left, (bytes, bytearray)) or not isinstance(right, (bytes, bytearray)):
+                try:
+                    left = ast.literal_eval(left_part)
+                    right = ast.literal_eval(right_part)
+                    if not isinstance(left, (bytes, bytearray)) or not isinstance(right, (bytes, bytearray)):
+                        continue
+                    merges.append((bytes(left), bytes(right)))
+                except:
                     continue
-                merges.append((bytes(left), bytes(right)))
 
         return cls(vocab, merges, special_tokens)
 
+    def _to_bytes_tuple(self, word: str) -> tuple[bytes, ...]:
+        """
+        将字符串转换为单个字节的元组
+        
+        Args:
+            word: 输入字符串
+            
+        Returns:
+            单个字节的元组
+        """
+        l = list(word.encode("utf-8"))
+        l = [bytes([x]) for x in l]
+        return tuple(l)
     
     def encode(self, text: str) -> list[int]:
         """
@@ -108,17 +139,63 @@ class Tokenizer:
         Returns:
             token ID 列表
         """
-        # 1. 预分词（使用 GPT-2 正则表达式）
+        # 首先处理 special tokens
+        result_ids = []
+        remaining_text = text
+        
+        while remaining_text:
+            # 查找最早出现的 special token（优先匹配更长的）
+            earliest_special = None
+            earliest_pos = len(remaining_text)
+            
+            # 按长度降序排序 special tokens，优先匹配更长的
+            sorted_special_tokens = sorted(self.special_tokens, key=len, reverse=True)
+            
+            for special_token in sorted_special_tokens:
+                pos = remaining_text.find(special_token)
+                if pos != -1 and pos < earliest_pos:
+                    earliest_special = special_token
+                    earliest_pos = pos
+            
+            if earliest_special is not None:
+                # 处理 special token 之前的文本
+                if earliest_pos > 0:
+                    before_text = remaining_text[:earliest_pos]
+                    before_ids = self._encode_text(before_text)
+                    result_ids.extend(before_ids)
+                
+                # 添加 special token
+                special_id = self.bytes_to_id.get(earliest_special.encode('utf-8'))
+                if special_id is not None:
+                    result_ids.append(special_id)
+                
+                # 更新剩余文本
+                remaining_text = remaining_text[earliest_pos + len(earliest_special):]
+            else:
+                # 没有更多 special tokens，处理剩余文本
+                remaining_ids = self._encode_text(remaining_text)
+                result_ids.extend(remaining_ids)
+                break
+        
+        return result_ids
+    
+    def _encode_text(self, text: str) -> list[int]:
+        """
+        编码普通文本（不包含 special tokens）
+        """
         pretokens = self._pretokenize(text)  # list[str]
+
         
-        # 2. 将每个预分词转换为UTF-8字节序列
-        byte_tokens = [token.encode('utf-8') for token in pretokens]  # list[bytes]
+        # 对每个预分词后的token分别应用BPE合并!!!而不是
+        all_merged_tokens = []
+        for token in pretokens:
+            # 将单个token转换为字节元组
+            byte_tuple = self._to_bytes_tuple(token)
+            # 对每个token分别应用合并
+            merged_token = self._apply_merges(list(byte_tuple))
+            all_merged_tokens.extend(merged_token)
         
-        # 3. 应用 BPE 合并规则
-        merged_tokens = self._apply_merges(byte_tokens)  # list[bytes]
-        
-        # 4. 转换为 token ID 序列
-        ids = self._bytes_to_ids(merged_tokens)  # list[int]
+        ids = self._bytes_to_ids(all_merged_tokens)  # list[int]
         
         return ids
     
@@ -206,6 +283,7 @@ class Tokenizer:
         # 对每一条 (a, b)，在序列中“左到右”扫描，遇到相邻的 a, b 就合并为 a+b，然后继续扫描直到该规则在该序列上不再匹配；
         # 完成这一条规则后，继续下一条规则；
         # 规则之间的顺序必须保持和训练时一致。
+
         if not tokens or len(tokens) < 2:
             return tokens
 
@@ -462,8 +540,68 @@ def test_encode_iterable() -> None:
     print("encode_iterable test completed.")
 
 
+def test_tinystories_pausing():
+    """测试 TinyStories tokenizer 对 ' pausing' 的编码"""
+    print("测试 TinyStories tokenizer 对 ' pausing' 的编码...")
+    
+    try:
+        # 加载 TinyStories tokenizer
+        tokenizer = Tokenizer.from_files(
+            'cs336_basics/bpe/bpe_results/tinystories_vocab.json',
+            'cs336_basics/bpe/bpe_results/tinystories_merges.txt',
+            special_tokens=['<|endoftext|>']
+        )
+        
+        print(f"✅ 成功加载 TinyStories tokenizer")
+        print(f"   词汇表大小: {len(tokenizer.vocab)}")
+        print(f"   合并规则数量: {len(tokenizer.merges)}")
+        
+        # 测试 ' pausing' 的编码过程
+        text = ' eigenvalue'
+        print(f"\n测试文本: '{text}'")
+        
+        # 1. 预分词
+        pretokens = tokenizer._pretokenize(text)
+        print(f"1. 预分词结果: {pretokens}")
+        
+        # 2. 字节转换
+        byte_tokens = [token.encode('utf-8') for token in pretokens]
+        print(f"2. 字节 tokens: {byte_tokens}")
+        
+        # 3. 应用合并
+        merged_tokens = tokenizer._apply_merges(byte_tokens)
+        print(f"3. 合并后 tokens: {merged_tokens}")
+        
+        # 4. 检查每个 token 是否在词汇表中
+        print(f"4. 检查词汇表匹配:")
+        for i, token in enumerate(merged_tokens):
+            if token in tokenizer.bytes_to_id:
+                token_id = tokenizer.bytes_to_id[token]
+                print(f"   Token {i} '{token}' -> ID {token_id} ✅")
+            else:
+                print(f"   Token {i} '{token}' -> NOT FOUND ❌")
+        
+        # 5. 完整编码测试
+        try:
+            result = tokenizer.encode(text)
+            print(f"5. 完整编码结果: {result} ✅")
+            
+            # 6. 解码测试
+            decoded = tokenizer.decode(result)
+            print(f"6. 解码结果: '{decoded}' ✅")
+            print(f"   原始文本: '{text}'")
+            print(f"   解码匹配: {decoded == text} {'✅' if decoded == text else '❌'}")
+            
+        except Exception as e:
+            print(f"5. 完整编码失败: {e} ❌")
+            
+    except Exception as e:
+        print(f"❌ 测试失败: {e}")
+
+
 if __name__ == "__main__":
     # test_from_files("tinystories")
+    test_tinystories_pausing()
     # test_pretokenize_basic()
     # test_tokenizer()
-    test_encode_basic()
+    # test_encode_basic()
