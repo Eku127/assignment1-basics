@@ -10,6 +10,9 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 from cs336_basics.bpe import train_bpe
 
+# add einops and 
+from einops import rearrange, einsum
+
 
 def run_linear(
     d_in: int,

@@ -5,6 +5,7 @@ __pycache__/
 
 data/
 bpe_results/
+encoded_datasets/
 
 # C extensions
 *.so

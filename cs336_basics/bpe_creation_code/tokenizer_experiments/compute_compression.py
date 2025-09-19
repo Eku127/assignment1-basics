@@ -16,7 +16,7 @@ import os
 import random
 from typing import Iterable
 
-from cs336_basics.tokenizer import Tokenizer
+from cs336_basics.tokenizer_improved import Tokenizer
 
 
 def read_documents(path: str, delimiter: str, max_docs: int | None, random_sample: bool, seed: int) -> list[str]:
