@@ -32,8 +32,16 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
-
-    raise NotImplementedError
+    from cs336_basics.transformer.linear import Linear
+    
+    # Create a Linear module
+    linear = Linear(d_in, d_out, device=weights.device, dtype=weights.dtype)
+    
+    # Load the provided weights
+    linear.load_state_dict({'weight': weights})
+    
+    # Apply the linear transformation
+    return linear(in_features)
 
 
 def run_embedding(
@@ -54,8 +62,16 @@ def run_embedding(
     Returns:
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
-
-    raise NotImplementedError
+    from cs336_basics.transformer.embedding import Embedding
+    
+    # Create an Embedding module
+    embedding = Embedding(vocab_size, d_model, device=weights.device, dtype=weights.dtype)
+    
+    # Load the provided weights
+    embedding.load_state_dict({'weight': weights})
+    
+    # Apply the embedding lookup
+    return embedding(token_ids)
 
 
 def run_swiglu(
@@ -80,14 +96,20 @@ def run_swiglu(
     Returns:
         Float[Tensor, "... d_model"]: Output embeddings of the same shape as the input embeddings.
     """
-    # Example:
-    # If your state dict keys match, you can use `load_state_dict()`
-    # swiglu.load_state_dict(weights)
-    # You can also manually assign the weights
-    # swiglu.w1.weight.data = w1_weight
-    # swiglu.w2.weight.data = w2_weight
-    # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+    from cs336_basics.transformer.positionwise_feedforward import SwiGLU
+    
+    # Create a SwiGLU module
+    swiglu = SwiGLU(d_model, d_ff, device=w1_weight.device, dtype=w1_weight.dtype)
+    
+    # Load the provided weights
+    swiglu.load_state_dict({
+        'W1': w1_weight,
+        'W2': w2_weight, 
+        'W3': w3_weight
+    })
+    
+    # Apply SwiGLU
+    return swiglu(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -204,7 +226,13 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    from cs336_basics.transformer.rope import RotaryPositionalEmbedding
+    
+    # Create RoPE module
+    rope = RotaryPositionalEmbedding(theta, d_k, max_seq_len, device=in_query_or_key.device)
+    
+    # Apply RoPE
+    return rope(in_query_or_key, token_positions)
 
 
 def run_transformer_block(
@@ -382,7 +410,16 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+    from cs336_basics.transformer.rmsnorm import RMSNorm
+    
+    # Create an RMSNorm module
+    rmsnorm = RMSNorm(d_model, eps, device=weights.device, dtype=weights.dtype)
+    
+    # Load the provided weights (gain parameter)
+    rmsnorm.load_state_dict({'gain': weights})
+    
+    # Apply RMSNorm
+    return rmsnorm(in_features)
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
@@ -396,7 +433,8 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    raise NotImplementedError
+    # SiLU formula: SiLU(x) = x * sigmoid(x)
+    return in_features * torch.sigmoid(in_features)
 
 
 def run_get_batch(
@@ -435,7 +473,9 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    from cs336_basics.transformer.attention import softmax
+    
+    return softmax(in_features, dim)
 
 
 def run_cross_entropy(
