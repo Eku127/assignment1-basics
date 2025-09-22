@@ -69,20 +69,28 @@ def scaled_dot_product_attention(
     # TODO: Implement scaled dot-product attention
     # Step 1: Compute attention scores QK^T
     # Hint: Use torch.einsum for efficient matrix multiplication
+    original_scores = torch.einsum('...qd, ...kd->...qk', Q, K)
     
     # Step 2: Scale by sqrt(d_k)
     # Hint: d_k is the last dimension of Q and K
+    # get d_k
+    d = Q.shape[-1]
+    scaled_scores = original_scores / torch.sqrt(torch.tensor(d, dtype=original_scores.dtype))
     
     # Step 3: Apply mask if provided
     # Hint: Set masked positions to -inf before softmax
+    if mask is not None:
+        scaled_scores = scaled_scores.masked_fill(~mask, float('-inf'))
     
     # Step 4: Apply softmax
     # Hint: Use the softmax function you implemented above
+    atten_weights = softmax(scaled_scores, dim = -1)
     
     # Step 5: Apply attention weights to values
     # Hint: Use torch.einsum for efficient multiplication
+    attention = torch.einsum('...qk, ...kv->...qv', atten_weights, V)
     
-    raise NotImplementedError("Please implement scaled dot-product attention")
+    return attention
 
 
 def create_causal_mask(seq_len: int, device: torch.device | None = None) -> torch.Tensor:
