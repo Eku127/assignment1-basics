@@ -194,14 +194,102 @@ output = rope(x, positions)  # Output shape: (batch_size, seq_len, 64)
 - Recombines dimensions in original order
 - Uses `register_buffer` for efficient cos/sin storage
 
+### ✅ Scaled Dot-Product Attention (`attention.py`) - **已完成实现**
+
+Implements the core attention mechanism from "Attention Is All You Need":
+- Formula: `Attention(Q, K, V) = softmax(QK^T / √d_k)V`
+- Includes numerically stable softmax implementation
+- Supports causal masking for autoregressive generation
+- Handles arbitrary batch dimensions
+
+**Key Features:**
+- Custom softmax function with numerical stability (subtracts max for stability)
+- Efficient `torch.einsum` operations for matrix multiplication
+- Causal mask support to prevent attention to future tokens
+- Proper scaling by `√d_k` for gradient stability
+
+**Usage:**
+```python
+from cs336_basics.transformer.attention import scaled_dot_product_attention
+
+# Input tensors
+Q = torch.randn(batch_size, num_heads, seq_len, d_k)  # Queries
+K = torch.randn(batch_size, num_heads, seq_len, d_k)  # Keys  
+V = torch.randn(batch_size, num_heads, seq_len, d_v)  # Values
+
+# Optional causal mask
+mask = create_causal_mask(seq_len)  # Lower triangular mask
+
+# Apply attention
+output = scaled_dot_product_attention(Q, K, V, mask)
+# Output shape: (batch_size, num_heads, seq_len, d_v)
+```
+
+**Implementation Details:**
+- Uses `torch.einsum('...qd, ...kd->...qk', Q, K)` for attention scores
+- Applies numerical stability by subtracting max values before exp
+- Supports both 3D and 4D input tensors for flexibility
+- Efficiently handles causal masking with `masked_fill`
+
+### ✅ Multi-Head Self-Attention (`multihead_attention.py`) - **已完成实现**
+
+Complete multi-head self-attention implementation with optional RoPE support:
+- Splits input into multiple attention heads for parallel processing
+- Applies linear projections for Q, K, V transformations
+- Combines multiple attention heads back to original dimension
+- Supports both standard and RoPE-enhanced attention
+
+**Key Features:**
+- Uses custom `Linear` layers for all projections (Q, K, V, output)
+- Efficient head splitting using `einops.rearrange`
+- Causal masking for autoregressive language modeling
+- Optional Rotary Positional Embedding integration
+- Proper weight initialization following assignment specs
+
+**Usage:**
+```python
+from cs336_basics.transformer.multihead_attention import MultiHeadSelfAttention
+
+# Standard multi-head attention
+mha = MultiHeadSelfAttention(
+    d_model=512, 
+    num_heads=8,
+    use_rope=False
+)
+
+# With RoPE support
+mha_rope = MultiHeadSelfAttention(
+    d_model=512, 
+    num_heads=8, 
+    use_rope=True,
+    max_seq_len=2048,
+    theta=10000.0
+)
+
+# Forward pass
+x = torch.randn(batch_size, seq_len, d_model)
+output = mha(x)  # Shape: (batch_size, seq_len, d_model)
+
+# With RoPE and position indices
+token_positions = torch.arange(seq_len)
+output_rope = mha_rope(x, token_positions)
+```
+
+**Implementation Details:**
+- QKV projections: `d_model → d_model` using `Linear` layers
+- Head reshaping: `(batch, seq, d_model) → (batch, heads, seq, d_k)`
+- Attention computation using `scaled_dot_product_attention`
+- Output projection: `d_model → d_model` for final transformation
+- Automatic causal mask creation for each forward pass
+
 ## TODO: Modules to Implement
 
 - [x] Embedding Module (`embedding.py`) - **✅ 已完成实现**
 - [x] RMSNorm (`rmsnorm.py`) - **✅ 已完成实现**
 - [x] SwiGLU (`positionwise_feedforward.py`) - **✅ 已完成实现**
 - [x] Rotary Positional Embedding (`rope.py`) - **✅ 已完成实现**
-- [ ] Scaled Dot-Product Attention (`attention.py`)
-- [ ] Multi-Head Self-Attention (`multihead_attention.py`)
+- [x] Scaled Dot-Product Attention (`attention.py`) - **✅ 已完成实现**
+- [x] Multi-Head Self-Attention (`multihead_attention.py`) - **✅ 已完成实现**
 - [ ] Transformer Block (`transformer_block.py`)
 - [ ] Full Transformer LM (`transformer_lm.py`)
 
@@ -258,15 +346,21 @@ Run the tests for the RoPE module (when implemented):
 uv run pytest tests/test_model.py::test_rope -v
 ```
 
-Run the tests for the Scaled Dot-Product Attention (when implemented):
+Run the tests for the Scaled Dot-Product Attention:
 ```bash
 uv run pytest tests/test_model.py::test_scaled_dot_product_attention -v
 uv run pytest tests/test_model.py::test_4d_scaled_dot_product_attention -v
 ```
 
-Run the tests for the Multi-Head Self-Attention (when implemented):
+Run the tests for the Multi-Head Self-Attention:
 ```bash
 uv run pytest tests/test_model.py::test_multihead_self_attention -v
+uv run pytest tests/test_model.py::test_multihead_self_attention_with_rope -v
+```
+
+Run all attention-related tests:
+```bash
+uv run pytest tests/test_model.py -k "attention" -v
 ```
 
 Run the tests for the Transformer Block (when implemented):
@@ -296,8 +390,8 @@ uv run python cs336_basics/transformer/test_linear_demo.py
 - [x] RMSNorm (1 point) - **✅ 已完成实现**
 - [ ] SwiGLU Feed-Forward (2 points)
 - [ ] RoPE (2 points)
-- [ ] Scaled Dot-Product Attention (5 points)
-- [ ] Multi-Head Self-Attention (5 points)
+- [x] Scaled Dot-Product Attention (5 points) - **✅ 已完成**
+- [x] Multi-Head Self-Attention (5 points) - **✅ 已完成**
 - [ ] Transformer Block (3 points)
 - [ ] Transformer LM (3 points)
 

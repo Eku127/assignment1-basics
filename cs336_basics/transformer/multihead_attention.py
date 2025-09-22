@@ -11,6 +11,7 @@ import torch.nn.init as init
 import math
 from .attention import scaled_dot_product_attention, create_causal_mask
 from .rope import RotaryPositionalEmbedding
+from .linear import Linear
 from einops import rearrange
 
 
@@ -66,45 +67,12 @@ class MultiHeadSelfAttention(nn.Module):
         if self.d_v * num_heads != d_model:
             raise ValueError(f"d_v * num_heads ({self.d_v * num_heads}) must equal d_model ({d_model})")
         
-        # Initialize projection weight matrices
-        # WQ: (d_model, d_model) - Query projection
-        # WK: (d_model, d_model) - Key projection  
-        # WV: (d_model, d_model) - Value projection
-        # WO: (d_model, d_model) - Output projection
-
-        # Hint: Use nn.Parameter for learnable weights
-        # Hint: Initialize weights using proper initialization scheme
-        # Hint: Consider using Linear layers or manual parameter initialization
-
-        # 权重形状：Q, K, V 是 (d_model, d_model)，O 是 (d_model, d_model)
-        self.WQ = nn.Parameter(torch.empty(d_model, d_model, device=device, dtype=dtype))
-        self.WK = nn.Parameter(torch.empty(d_model, d_model, device=device, dtype=dtype))
-        self.WV = nn.Parameter(torch.empty(d_model, d_model, device=device, dtype=dtype))
-        self.WO = nn.Parameter(torch.empty(d_model, d_model, device=device, dtype=dtype))
-
-        # Initialize all weight matrices
-        # Hint: Call _init_weights for each weight matrix
-        # Hint: Pass appropriate in_features and out_features for each matrix
-        self._init_weights(self.WQ, d_model, d_model)
-        self._init_weights(self.WK, d_model, d_model)
-        self._init_weights(self.WV, d_model, d_model)
-        self._init_weights(self.WO, d_model, d_model)
-        
-    
-    def _init_weights(self, weight_tensor, in_features, out_features):
-        """Initialize weights using Xavier uniform initialization."""
-        # Implement weight initialization
-        # Hint: Use Xavier uniform initialization for attention weights
-        # Hint: Consider using init.xavier_uniform_ or init.trunc_normal_
-        # Hint: For trunc_normal_, use std = sqrt(2.0 / (in_features + out_features))
-        
-        # Calculate standard deviation
-        std = math.sqrt(2.0 / (in_features + out_features))
-        
-        # Initialize with truncated normal distribution
-        init.trunc_normal_(weight_tensor, mean=0.0, std=std, a=-3*std, b=3*std)
-    
-        
+        # Initialize projection layers using Linear modules
+        # Each projection: d_model -> d_model
+        self.q_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+        self.k_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+        self.v_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+        self.o_proj = Linear(d_model, d_model, device=device, dtype=dtype)
     
     def _create_causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
         """
@@ -139,14 +107,10 @@ class MultiHeadSelfAttention(nn.Module):
         Returns:
             Tuple of (Q, K, V) tensors of shape (..., seq_len, d_model)
         """
-        # Implement QKV projection
-        # Hint: Apply linear projections to get Q, K, V
-        # Hint: Use torch.einsum for efficient matrix multiplication
-
-        # Q = x * WQ
-        Q = torch.einsum('...sd,dd->...sd', x, self.WQ)
-        K = torch.einsum('...sd,dd->...sd', x, self.WK)
-        V = torch.einsum('...sd,dd->...sd', x, self.WV)
+        # Use Linear layers for QKV projection
+        Q = self.q_proj(x)
+        K = self.k_proj(x)
+        V = self.v_proj(x)
 
         return Q, K, V
     
@@ -244,8 +208,8 @@ class MultiHeadSelfAttention(nn.Module):
         # Att: (..., num_heads, seq_len, d_v) --> Att: (..., seq_len, d_model)
         attention_output = self._combine_heads(attention_output)
 
-        # Hint: Step 7: Apply output projection using torch.einsum()
-        output = torch.einsum('...sd,dd->...sd', attention_output, self.WO)
+        # Step 7: Apply output projection using Linear layer
+        output = self.o_proj(attention_output)
 
         return output
     
