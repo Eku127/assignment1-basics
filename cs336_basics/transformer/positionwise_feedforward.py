@@ -41,12 +41,16 @@ class SwiGLU(nn.Module):
         # Hint: Use the same initialization as Linear module
         # std = sqrt(2.0 / (in_features + out_features))
 
+        # Ensure dtype is floating point for gradient computation
+        if dtype is not None and not torch.is_floating_point(torch.tensor(0, dtype=dtype)):
+            dtype = torch.float32
+        
         # First linear within the gat
-        self.W1 = nn.Parameter(torch.empty(d_ff, d_model, device=device, dtype=dtype))
+        self.W1 = nn.Parameter(torch.empty(d_ff, d_model, device=device, dtype=dtype or torch.float32))
         # The output weight
-        self.W2 = nn.Parameter(torch.empty(d_model, d_ff, device=device, dtype=dtype))
+        self.W2 = nn.Parameter(torch.empty(d_model, d_ff, device=device, dtype=dtype or torch.float32))
         # The content way weight
-        self.W3 = nn.Parameter(torch.empty(d_ff, d_model, device=device, dtype=dtype))
+        self.W3 = nn.Parameter(torch.empty(d_ff, d_model, device=device, dtype=dtype or torch.float32))
 
         # weight initialization
         self._init_weights(self.W1, d_model, d_ff)

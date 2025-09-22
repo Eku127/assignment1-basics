@@ -35,8 +35,11 @@ class Linear(nn.Module):
         
         # Initialize weight matrix W with shape (out_features, in_features)
         # This follows row-major memory ordering convention
+        # Ensure dtype is floating point for gradient computation
+        if dtype is not None and not torch.is_floating_point(torch.tensor(0, dtype=dtype)):
+            dtype = torch.float32
         self.weight = nn.Parameter(
-            torch.empty(out_features, in_features, device=device, dtype=dtype)
+            torch.empty(out_features, in_features, device=device, dtype=dtype or torch.float32)
         )
         
         # Initialize weights using truncated normal distribution

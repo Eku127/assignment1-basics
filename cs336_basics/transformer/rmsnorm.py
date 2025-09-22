@@ -36,9 +36,12 @@ class RMSNorm(nn.Module):
         # The gain parameter 'g' has shape (d_model,) and should be initialized to 1
         # Use nn.Parameter to make it learnable
         # Hint: torch.ones(d_model, device=device, dtype=dtype)
+        # Ensure dtype is floating point for gradient computation
+        if dtype is not None and not torch.is_floating_point(torch.tensor(0, dtype=dtype)):
+            dtype = torch.float32
 
         self.gain = nn.Parameter(
-            torch.ones(self.d_model, device=device, dtype=dtype)
+            torch.ones(self.d_model, device=device, dtype=dtype or torch.float32)
         )
 
         # for gain we do not need to init the weights

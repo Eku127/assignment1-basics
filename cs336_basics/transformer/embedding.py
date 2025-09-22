@@ -32,8 +32,11 @@ class Embedding(nn.Module):
         # Initialize embedding matrix with shape (num_embeddings, embedding_dim)
         # Following the assignment specifications:
         # N(μ=0, σ²=1) truncated at [-3, 3]
+        # Ensure dtype is floating point for gradient computation
+        if dtype is not None and not torch.is_floating_point(torch.tensor(0, dtype=dtype)):
+            dtype = torch.float32
         self.weight = nn.Parameter(
-            torch.empty(num_embeddings, embedding_dim, device=device, dtype=dtype)
+            torch.empty(num_embeddings, embedding_dim, device=device, dtype=dtype or torch.float32)
         )
         
         # Initialize weights using truncated normal distribution
