@@ -363,12 +363,12 @@ Run all attention-related tests:
 uv run pytest tests/test_model.py -k "attention" -v
 ```
 
-Run the tests for the Transformer Block (when implemented):
+Run the tests for the Transformer Block:
 ```bash
 uv run pytest tests/test_model.py::test_transformer_block -v
 ```
 
-Run the tests for the Transformer LM (when implemented):
+Run the tests for the Transformer LM:
 ```bash
 uv run pytest tests/test_model.py::test_transformer_lm -v
 ```
@@ -378,21 +378,151 @@ uv run pytest tests/test_model.py::test_transformer_lm -v
 uv run pytest tests/test_model.py -v
 ```
 
-### Run Demo Scripts
+## Demo Scripts
+
+All demo scripts are located in the `demo/` subdirectory:
+
+### Linear Module Demo
 ```bash
-uv run python cs336_basics/transformer/test_linear_demo.py
+uv run python cs336_basics/transformer/demo/test_linear_demo.py
+```
+
+### Embedding Module Demo
+```bash
+uv run python cs336_basics/transformer/demo/embedding_demo.py
+```
+
+### RMSNorm Demo
+```bash
+uv run python cs336_basics/transformer/demo/rmsnorm_demo.py
+```
+
+### SwiGLU Demo
+```bash
+uv run python cs336_basics/transformer/demo/swiglu_demo.py
+```
+
+### RoPE Demo
+```bash
+uv run python cs336_basics/transformer/demo/rope_demo.py
+```
+
+### Softmax Demo
+```bash
+uv run python cs336_basics/transformer/demo/softmax_demo.py
+```
+
+### Multi-Head Attention Demo
+```bash
+uv run python cs336_basics/transformer/demo/multihead_attention_demo.py
+```
+
+### Transformer Block Demo
+```bash
+uv run python cs336_basics/transformer/demo/transformer_block_demo.py
+```
+
+### Transformer LM Demo
+```bash
+uv run python cs336_basics/transformer/demo/transformer_lm_demo.py
 ```
 
 ## Assignment Progress
 
-- [x] Linear Module (1 point)
-- [ ] Embedding Module (1 point) - **框架已创建，需要实现forward方法**
+- [x] Linear Module (1 point) - **✅ 已完成实现**
+- [x] Embedding Module (1 point) - **✅ 已完成实现**
 - [x] RMSNorm (1 point) - **✅ 已完成实现**
-- [ ] SwiGLU Feed-Forward (2 points)
-- [ ] RoPE (2 points)
-- [x] Scaled Dot-Product Attention (5 points) - **✅ 已完成**
-- [x] Multi-Head Self-Attention (5 points) - **✅ 已完成**
-- [ ] Transformer Block (3 points)
-- [ ] Transformer LM (3 points)
+- [x] SwiGLU Feed-Forward (2 points) - **✅ 已完成实现**
+- [x] RoPE (2 points) - **✅ 已完成实现**
+- [x] Scaled Dot-Product Attention (5 points) - **✅ 已完成实现**
+- [x] Multi-Head Self-Attention (5 points) - **✅ 已完成实现**
+- [ ] Transformer Block (3 points) - **🔨 框架已创建，需要实现**
+- [ ] Transformer LM (3 points) - **🔨 框架已创建，需要实现**
 
 **Total: 23 points for Transformer implementation**
+
+### 🔨 Transformer Block (`transformer_block.py`) - **TODO: 需要实现**
+
+Pre-norm Transformer block implementing the modern architecture used in GPT, LLaMA, and other LLMs:
+- Pre-normalization (RMSNorm before each sublayer)
+- Multi-head self-attention with causal masking
+- SwiGLU position-wise feed-forward network
+- Residual connections around each sublayer
+- RoPE (Rotary Positional Embedding) support
+
+**Key Features:**
+- Pre-norm architecture for better training stability
+- Causal masking for autoregressive language modeling
+- Support for arbitrary batch dimensions
+- Integration with RoPE for positional encoding
+
+**Usage:**
+```python
+from cs336_basics.transformer import TransformerBlock
+
+# Create a Transformer block
+block = TransformerBlock(
+    d_model=512,
+    num_heads=8,
+    d_ff=1344,  # ~8/3 * d_model, multiple of 64
+    use_rope=True,
+    max_seq_len=1024
+)
+
+# Forward pass
+x = torch.randn(batch_size, seq_len, d_model)
+token_positions = torch.arange(seq_len)
+output = block(x, token_positions)  # Same shape as input
+```
+
+**Implementation Hints:**
+- Initialize 4 components: norm1, attention, norm2, feed_forward
+- Forward pass: two sublayers with residual connections
+- First sublayer: `y = x + attention(norm1(x))`
+- Second sublayer: `z = y + feed_forward(norm2(y))`
+
+### 🔨 Transformer LM (`transformer_lm.py`) - **TODO: 需要实现**
+
+Complete Transformer Language Model combining all components into a full autoregressive model:
+- Token embedding layer
+- Stack of Transformer blocks
+- Final layer normalization (for pre-norm architecture)
+- Language model head (linear projection to vocabulary)
+- Optional text generation capabilities
+
+**Key Features:**
+- Full end-to-end language model architecture
+- Supports arbitrary vocabulary and context length
+- Causal masking for autoregressive modeling
+- Parameter counting utilities
+- Optional generation methods
+
+**Usage:**
+```python
+from cs336_basics.transformer import TransformerLM
+
+# Create a Transformer LM
+model = TransformerLM(
+    vocab_size=10000,
+    context_length=1024,
+    d_model=512,
+    num_layers=6,
+    num_heads=8,
+    d_ff=1344,
+    use_rope=True
+)
+
+# Forward pass
+token_ids = torch.randint(0, vocab_size, (batch_size, seq_len))
+logits = model(token_ids)  # Shape: (batch_size, seq_len, vocab_size)
+
+# Count parameters
+num_params = model.count_parameters()
+print(f"Model has {num_params:,} parameters")
+```
+
+**Implementation Hints:**
+- Initialize 4 main components: token_embedding, transformer_blocks, final_norm, lm_head
+- Use `nn.ModuleList` for multiple Transformer blocks
+- Forward pass: embed → blocks → norm → project
+- Create token positions for RoPE if enabled

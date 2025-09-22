@@ -10,9 +10,8 @@ from .rope import RotaryPositionalEmbedding
 from .attention import softmax, scaled_dot_product_attention
 from .multihead_attention import MultiHeadSelfAttention, MultiHeadSelfAttentionWithRoPE
 
-# TODO: Import other modules as they are implemented
-# from .transformer_block import TransformerBlock
-# from .transformer_lm import TransformerLM
+from .transformer_block import TransformerBlock
+from .transformer_lm import TransformerLM
 
 __all__ = [
     "Linear",
@@ -24,6 +23,6 @@ __all__ = [
     "scaled_dot_product_attention",
     "MultiHeadSelfAttention",
     "MultiHeadSelfAttentionWithRoPE",
-    # "TransformerBlock",
-    # "TransformerLM",
+    "TransformerBlock",
+    "TransformerLM",
 ]

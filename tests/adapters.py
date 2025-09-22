@@ -347,7 +347,49 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    from cs336_basics.transformer.transformer_block import TransformerBlock
+    import torch
+    
+    # Create TransformerBlock with RoPE enabled
+    block = TransformerBlock(
+        d_model=d_model,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        use_rope=True,
+        max_seq_len=max_seq_len,
+        theta=theta,
+        device=in_features.device,
+        dtype=in_features.dtype
+    )
+    
+    # Load the provided weights
+    # Map the test weights to our implementation's parameter names
+    state_dict = {}
+    
+    # Attention weights
+    state_dict['attention.q_proj.weight'] = weights['attn.q_proj.weight']
+    state_dict['attention.k_proj.weight'] = weights['attn.k_proj.weight']
+    state_dict['attention.v_proj.weight'] = weights['attn.v_proj.weight']
+    state_dict['attention.o_proj.weight'] = weights['attn.output_proj.weight']
+    
+    # RMSNorm weights
+    state_dict['norm1.gain'] = weights['ln1.weight']
+    state_dict['norm2.gain'] = weights['ln2.weight']
+    
+    # Feed-forward weights
+    state_dict['feed_forward.W1'] = weights['ffn.w1.weight']
+    state_dict['feed_forward.W2'] = weights['ffn.w2.weight']
+    state_dict['feed_forward.W3'] = weights['ffn.w3.weight']
+    
+    # Load the state dict
+    block.load_state_dict(state_dict)
+    
+    # Create token positions for RoPE
+    batch_size, seq_len, _ = in_features.shape
+    token_positions = torch.arange(seq_len, device=in_features.device)
+    
+    # Forward pass
+    return block(in_features, token_positions)
 
 
 def run_transformer_lm(
@@ -429,7 +471,59 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    from cs336_basics.transformer.transformer_lm import TransformerLM
+    import torch
+    
+    # Create TransformerLM with RoPE enabled
+    model = TransformerLM(
+        vocab_size=vocab_size,
+        context_length=context_length,
+        d_model=d_model,
+        num_layers=num_layers,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        use_rope=True,
+        theta=rope_theta,
+        device=in_indices.device,
+        dtype=in_indices.dtype
+    )
+    
+    # Load the provided weights
+    # Map the test weights to our implementation's parameter names
+    state_dict = {}
+    
+    # Token embedding weights
+    state_dict['token_embedding.weight'] = weights['token_embeddings.weight']
+    
+    # Transformer layers weights
+    for layer_idx in range(num_layers):
+        layer_prefix = f'layers.{layer_idx}'
+        our_prefix = f'transformer_blocks.{layer_idx}'
+        
+        # Attention weights
+        state_dict[f'{our_prefix}.attention.q_proj.weight'] = weights[f'{layer_prefix}.attn.q_proj.weight']
+        state_dict[f'{our_prefix}.attention.k_proj.weight'] = weights[f'{layer_prefix}.attn.k_proj.weight']
+        state_dict[f'{our_prefix}.attention.v_proj.weight'] = weights[f'{layer_prefix}.attn.v_proj.weight']
+        state_dict[f'{our_prefix}.attention.o_proj.weight'] = weights[f'{layer_prefix}.attn.output_proj.weight']
+        
+        # RMSNorm weights
+        state_dict[f'{our_prefix}.norm1.gain'] = weights[f'{layer_prefix}.ln1.weight']
+        state_dict[f'{our_prefix}.norm2.gain'] = weights[f'{layer_prefix}.ln2.weight']
+        
+        # Feed-forward weights
+        state_dict[f'{our_prefix}.feed_forward.W1'] = weights[f'{layer_prefix}.ffn.w1.weight']
+        state_dict[f'{our_prefix}.feed_forward.W2'] = weights[f'{layer_prefix}.ffn.w2.weight']
+        state_dict[f'{our_prefix}.feed_forward.W3'] = weights[f'{layer_prefix}.ffn.w3.weight']
+    
+    # Final layer norm and LM head weights
+    state_dict['final_norm.gain'] = weights['ln_final.weight']
+    state_dict['lm_head.weight'] = weights['lm_head.weight']
+    
+    # Load the state dict
+    model.load_state_dict(state_dict)
+    
+    # Forward pass
+    return model(in_indices)
 
 
 def run_rmsnorm(
