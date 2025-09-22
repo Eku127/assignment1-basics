@@ -205,6 +205,30 @@ output = rope(x, positions)  # Output shape: (batch_size, seq_len, 64)
 - [ ] Transformer Block (`transformer_block.py`)
 - [ ] Full Transformer LM (`transformer_lm.py`)
 
+## Demo Scripts
+
+All demo scripts are located in the `demo/` directory:
+
+- `demo/linear_demo.py` - Linear module demonstration
+- `demo/embedding_demo.py` - Embedding module demonstration  
+- `demo/rmsnorm_demo.py` - RMSNorm module demonstration
+- `demo/swiglu_demo.py` - SwiGLU module demonstration
+- `demo/rope_demo.py` - RoPE module demonstration
+- `demo/softmax_demo.py` - Softmax function demonstration
+- `demo/parameter_demo.py` - Parameter and initialization demonstration
+
+### Run Demo Scripts
+
+```bash
+# Run individual demos
+uv run python cs336_basics/transformer/demo/linear_demo.py
+uv run python cs336_basics/transformer/demo/embedding_demo.py
+uv run python cs336_basics/transformer/demo/rmsnorm_demo.py
+uv run python cs336_basics/transformer/demo/swiglu_demo.py
+uv run python cs336_basics/transformer/demo/rope_demo.py
+uv run python cs336_basics/transformer/demo/softmax_demo.py
+```
+
 ## Testing
 
 ### Run Individual Module Tests
