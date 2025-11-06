@@ -9,20 +9,20 @@ This module covers **Sections 4, 5, and 6** of the assignment:
 - **Section 5**: Training Loop (Data Loading, Checkpointing, Training Infrastructure)
 - **Section 6**: Generating Text (Decoding, Temperature Scaling, Top-p Sampling)
 
-### 🎯 **Current Status: TO BE IMPLEMENTED**
+### 🎯 **Current Status**
 
-| Component | Module | Status | Points | Tests |
-|-----------|--------|--------|--------|-------|
-| Cross-entropy Loss | `loss.py` | ⬜ TODO | 1 | `test_cross_entropy` |
-| SGD Optimizer | `optimizer.py` | ⬜ TODO | - | - |
-| AdamW Optimizer | `optimizer.py` | ⬜ TODO | 2 | `test_adamw` |
-| LR Scheduling | `lr_scheduler.py` | ⬜ TODO | 1 | `test_get_lr_cosine_schedule` |
-| Gradient Clipping | `gradient_clipping.py` | ⬜ TODO | 1 | `test_gradient_clipping` |
-| Data Loading | `data_loader.py` | ⬜ TODO | 2 | `test_get_batch` |
-| Checkpointing | `checkpoint.py` | ⬜ TODO | 1 | `test_checkpointing` |
-| Training Loop | `train.py` | ⬜ TODO | 4 | - |
-| Text Generation | `decode.py` | ⬜ TODO | 3 | - |
-| **Total** | | **0/9** | **15** | |
+| Component | Module | Status | Points | Tests | Command |
+|-----------|--------|--------|--------|-------|---------|
+| Cross-entropy Loss | `loss.py` | ✅ DONE | 1 | `test_cross_entropy` | `uv run pytest tests/test_nn_utils.py::test_cross_entropy -v` |
+| SGD Optimizer | `optimizer.py` | ⬜ TODO | - | - | - |
+| AdamW Optimizer | `optimizer.py` | ⬜ TODO | 2 | `test_adamw` | `uv run pytest tests/test_optimizer.py::test_adamw -v` |
+| LR Scheduling | `lr_scheduler.py` | ⬜ TODO | 1 | `test_get_lr_cosine_schedule` | `uv run pytest tests/test_optimizer.py::test_get_lr_cosine_schedule -v` |
+| Gradient Clipping | `gradient_clipping.py` | ⬜ TODO | 1 | `test_gradient_clipping` | `uv run pytest tests/test_nn_utils.py::test_gradient_clipping -v` |
+| Data Loading | `data_loader.py` | ⬜ TODO | 2 | `test_get_batch` | `uv run pytest tests/test_data.py::test_get_batch -v` |
+| Checkpointing | `checkpoint.py` | ⬜ TODO | 1 | `test_checkpointing` | `uv run pytest tests/test_checkpoint.py::test_checkpointing -v` |
+| Training Loop | `train.py` | ⬜ TODO | 4 | - | Manual testing |
+| Text Generation | `decode.py` | ⬜ TODO | 3 | - | Manual testing |
+| **Total** | | **1/9** | **15** | | |
 
 ---
 
@@ -71,6 +71,39 @@ For evaluation, we also compute perplexity:
 perplexity = exp((1/m) * Σ ℓ_i)
 ```
 
+**Test:**
+```bash
+# Run the test
+uv run pytest tests/test_nn_utils.py::test_cross_entropy -v
+
+# Expected behavior:
+# - Should match PyTorch's F.cross_entropy output
+# - Should handle large logit values (1000+) without overflow
+# - Numerical stability: atol=1e-4
+```
+
+**Test Code:**
+```python
+# In tests/test_nn_utils.py
+def test_cross_entropy():
+    inputs = torch.tensor([
+        [[0.1, 0.5, 0.3, 0.8, 0.2],
+         [0.4, 0.7, 0.3, 0.4, 0.3]],
+        [[0.3, 0.9, 0.7, 0.8, 0.8],
+         [0.6, 0.4, 0.1, 0.6, 0.4]],
+    ])  # (2, 2, 5)
+    targets = torch.tensor([[1, 0], [4, 1]])  # (2, 2)
+    
+    # Your implementation
+    loss = run_cross_entropy(inputs.view(-1, 5), targets.view(-1))
+    
+    # PyTorch reference
+    expected = F.cross_entropy(inputs.view(-1, 5), targets.view(-1))
+    
+    # Should match within tolerance
+    assert torch.allclose(loss, expected, atol=1e-4)
+```
+
 ---
 
 ### 🔵 SGD Optimizer (`optimizer.py`)
@@ -96,6 +129,23 @@ With learning rate decay:
 - Must implement `step(self, closure=None)`
 - Uses `self.state` for iteration tracking
 - Updates via `p.data -= lr * p.grad`
+
+**Example:**
+```python
+from cs336_basics.training import SGD
+
+# Create optimizer
+weights = torch.nn.Parameter(5 * torch.randn((10, 10)))
+optimizer = SGD([weights], lr=1.0)
+
+# Training loop
+for t in range(100):
+    optimizer.zero_grad()
+    loss = (weights**2).mean()
+    loss.backward()
+    optimizer.step()
+    print(f"Step {t}: Loss = {loss.item():.4f}")
+```
 
 ---
 
@@ -130,6 +180,54 @@ v ← β_2 * v + (1 - β_2) * g²         # Second moment estimate
 
 **Memory Usage:**
 AdamW requires **3× parameter memory** (parameters + m + v)
+
+**Test:**
+```bash
+# Run the test
+uv run pytest tests/test_optimizer.py::test_adamw -v
+
+# Expected behavior:
+# - Should match PyTorch's torch.optim.AdamW
+# - Properly tracks moments (m, v) and iteration (t)
+# - Applies weight decay separately from gradient update
+# - Bias correction should work correctly
+```
+
+**Test Code:**
+```python
+# In tests/test_optimizer.py
+def test_adamw():
+    # Create test parameters
+    params_yours = [torch.nn.Parameter(torch.randn(10, 10)) for _ in range(3)]
+    params_pytorch = [torch.nn.Parameter(p.clone()) for p in params_yours]
+    
+    # Your AdamW
+    opt_yours = get_adamw_cls()(params_yours, lr=0.001, betas=(0.9, 0.999), 
+                                 eps=1e-8, weight_decay=0.01)
+    
+    # PyTorch AdamW
+    opt_pytorch = torch.optim.AdamW(params_pytorch, lr=0.001, betas=(0.9, 0.999),
+                                     eps=1e-8, weight_decay=0.01)
+    
+    # Run several steps
+    for _ in range(10):
+        # Compute same loss and gradients
+        loss_yours = sum((p**2).sum() for p in params_yours)
+        loss_pytorch = sum((p**2).sum() for p in params_pytorch)
+        
+        opt_yours.zero_grad()
+        opt_pytorch.zero_grad()
+        
+        loss_yours.backward()
+        loss_pytorch.backward()
+        
+        opt_yours.step()
+        opt_pytorch.step()
+    
+    # Parameters should match
+    for p_yours, p_pytorch in zip(params_yours, params_pytorch):
+        assert torch.allclose(p_yours, p_pytorch, atol=1e-6)
+```
 
 ---
 
@@ -176,6 +274,45 @@ for t in range(max_steps):
         param_group['lr'] = lr
 ```
 
+**Test:**
+```bash
+# Run the test
+uv run pytest tests/test_optimizer.py::test_get_lr_cosine_schedule -v
+
+# Expected behavior:
+# - Warmup: linear increase from 0 to max_lr
+# - Cosine: smooth decay from max_lr to min_lr
+# - Post-anneal: constant min_lr
+```
+
+**Test Code:**
+```python
+# In tests/test_optimizer.py
+def test_get_lr_cosine_schedule():
+    max_lr = 1.0
+    min_lr = 0.1
+    warmup_iters = 100
+    cosine_cycle_iters = 1000
+    
+    # Test warmup phase (t < warmup_iters)
+    lr_start = run_get_lr_cosine_schedule(0, max_lr, min_lr, warmup_iters, cosine_cycle_iters)
+    assert lr_start == 0.0  # Should start at 0
+    
+    lr_mid_warmup = run_get_lr_cosine_schedule(50, max_lr, min_lr, warmup_iters, cosine_cycle_iters)
+    assert 0 < lr_mid_warmup < max_lr  # Should be increasing
+    
+    lr_end_warmup = run_get_lr_cosine_schedule(100, max_lr, min_lr, warmup_iters, cosine_cycle_iters)
+    assert abs(lr_end_warmup - max_lr) < 1e-6  # Should reach max_lr
+    
+    # Test cosine phase
+    lr_mid_cosine = run_get_lr_cosine_schedule(500, max_lr, min_lr, warmup_iters, cosine_cycle_iters)
+    assert min_lr < lr_mid_cosine < max_lr  # Should be between min and max
+    
+    # Test post-anneal phase (t > cosine_cycle_iters)
+    lr_post = run_get_lr_cosine_schedule(1500, max_lr, min_lr, warmup_iters, cosine_cycle_iters)
+    assert abs(lr_post - min_lr) < 1e-6  # Should be at min_lr
+```
+
 ---
 
 ### 🟣 Gradient Clipping (`gradient_clipping.py`)
@@ -205,8 +342,61 @@ from cs336_basics.training import clip_gradients
 
 # Training loop
 loss.backward()
-clip_gradients(model.parameters(), max_norm=1.0)
+grad_norm = clip_gradients(model.parameters(), max_norm=1.0)
+if grad_norm > 1.0:
+    print(f"Clipped gradients: {grad_norm:.2f} -> 1.0")
 optimizer.step()
+```
+
+**Test:**
+```bash
+# Run the test
+uv run pytest tests/test_nn_utils.py::test_gradient_clipping -v
+
+# Expected behavior:
+# - Should match PyTorch's torch.nn.utils.clip_grad_norm_
+# - Computes global L2 norm of all gradients
+# - Scales all gradients if norm > max_norm
+# - Returns original norm before clipping
+```
+
+**Test Code:**
+```python
+# In tests/test_nn_utils.py
+def test_gradient_clipping():
+    # Create parameters with large gradients
+    params = [torch.nn.Parameter(torch.randn(5, 5)) for _ in range(3)]
+    max_norm = 0.01  # Very small threshold to ensure clipping
+    
+    # Compute loss and gradients
+    loss = sum((p**2).sum() for p in params)
+    loss.backward()
+    
+    # Compute expected norm
+    total_norm = torch.sqrt(sum((p.grad**2).sum() for p in params if p.grad is not None))
+    
+    # Apply gradient clipping
+    run_gradient_clipping(params, max_norm)
+    
+    # Check that norm is now <= max_norm
+    new_norm = torch.sqrt(sum((p.grad**2).sum() for p in params if p.grad is not None))
+    assert new_norm <= max_norm + 1e-6
+    
+    # Should match PyTorch's implementation
+    params_pytorch = [torch.nn.Parameter(torch.randn(5, 5)) for _ in range(3)]
+    loss_pytorch = sum((p**2).sum() for p in params_pytorch)
+    loss_pytorch.backward()
+    
+    # Clone gradients before clipping
+    grads_yours = [p.grad.clone() for p in params]
+    grads_pytorch = [p.grad.clone() for p in params_pytorch]
+    
+    run_gradient_clipping(params, max_norm)
+    torch.nn.utils.clip_grad_norm_(params_pytorch, max_norm)
+    
+    # Results should be close
+    for g1, g2 in zip(grads_yours, grads_pytorch):
+        assert torch.allclose(g1, g2, atol=1e-6)
 ```
 
 ---
@@ -262,6 +452,57 @@ For large datasets that don't fit in memory:
 data = np.load('tokens.npy', mmap_mode='r')
 # or
 data = np.memmap('tokens.npy', dtype=np.uint16, mode='r')
+```
+
+**Test:**
+```bash
+# Run the test
+uv run pytest tests/test_data.py::test_get_batch -v
+
+# Expected behavior:
+# - Returns (inputs, targets) both shape (batch_size, context_length)
+# - targets[i][j] = inputs[i][j+1] (next token prediction)
+# - Random sampling from dataset
+# - Tensors placed on correct device
+# - Dtype should be torch.long (integer type)
+```
+
+**Test Code:**
+```python
+# In tests/test_data.py
+def test_get_batch():
+    # Create synthetic dataset
+    dataset = np.arange(1000, dtype=np.int64)  # [0, 1, 2, ..., 999]
+    batch_size = 4
+    context_length = 10
+    device = 'cpu'
+    
+    # Sample a batch
+    inputs, targets = run_get_batch(dataset, batch_size, context_length, device)
+    
+    # Check shapes
+    assert inputs.shape == (batch_size, context_length)
+    assert targets.shape == (batch_size, context_length)
+    
+    # Check device
+    assert inputs.device.type == device
+    assert targets.device.type == device
+    
+    # Check dtype
+    assert inputs.dtype == torch.long
+    assert targets.dtype == torch.long
+    
+    # Check that targets are next tokens
+    # For at least one batch element, verify the relationship
+    # (Can't verify all since sampling is random)
+    assert all(inputs[i].max() < len(dataset) for i in range(batch_size))
+    assert all(targets[i].max() < len(dataset) for i in range(batch_size))
+    
+    # Sample multiple batches to test randomness
+    inputs1, _ = run_get_batch(dataset, batch_size, context_length, device)
+    inputs2, _ = run_get_batch(dataset, batch_size, context_length, device)
+    # Should be different (with high probability)
+    assert not torch.all(inputs1 == inputs2)
 ```
 
 ---
@@ -324,6 +565,62 @@ if step % save_every == 0:
 # Resume training
 iteration = load_checkpoint('checkpoint_10000.pt', model, optimizer)
 print(f"Resuming from iteration {iteration}")
+```
+
+**Test:**
+```bash
+# Run the test
+uv run pytest tests/test_checkpoint.py::test_checkpointing -v
+
+# Expected behavior:
+# - Save: creates checkpoint file with model, optimizer, iteration
+# - Load: restores exact model and optimizer state
+# - Returns correct iteration number
+# - Works with both file paths and file-like objects
+```
+
+**Test Code:**
+```python
+# In tests/test_checkpoint.py
+def test_checkpointing():
+    import tempfile
+    import os
+    
+    # Create a simple model and optimizer
+    model = torch.nn.Linear(10, 10)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    
+    # Do a few training steps to create state
+    for _ in range(5):
+        loss = (model.weight ** 2).sum()
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    
+    # Save checkpoint
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pt') as f:
+        checkpoint_path = f.name
+        run_save_checkpoint(model, optimizer, iteration=42, out=checkpoint_path)
+    
+    # Create new model and optimizer (different state)
+    model_new = torch.nn.Linear(10, 10)
+    optimizer_new = torch.optim.SGD(model_new.parameters(), lr=0.01)
+    
+    # Load checkpoint
+    loaded_iteration = run_load_checkpoint(checkpoint_path, model_new, optimizer_new)
+    
+    # Check iteration
+    assert loaded_iteration == 42
+    
+    # Check model weights match
+    for p1, p2 in zip(model.parameters(), model_new.parameters()):
+        assert torch.allclose(p1, p2)
+    
+    # Check optimizer state matches
+    assert optimizer.state_dict()['state'].keys() == optimizer_new.state_dict()['state'].keys()
+    
+    # Clean up
+    os.unlink(checkpoint_path)
 ```
 
 ---
