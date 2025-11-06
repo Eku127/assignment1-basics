@@ -1578,10 +1578,6 @@ Algorithm 1 AdamW Optimizer
 
           • Transformer block
                – RMSNorm(s)
-
-
-
-                                                     32
                  – Multi-head self-attention sublayer: QKV projections, Q⊤K matrix multiply, softmax,
                    weighted sum of values, output projection.
                  – Position-wise feed-forward: W1 matrix multiply, SiLU, W2 matrix multiply
