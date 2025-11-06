@@ -150,8 +150,44 @@ class AdamW(torch.optim.Optimizer):
         # 5. Update parameter with Adam step
         # 6. Apply weight decay
         # 7. Increment iteration counter t
-        
-        raise NotImplementedError("AdamW optimizer not yet implemented")
-        
+
+        for group in self.param_groups:
+            lr = group["lr"]
+            betas = group["betas"]
+            eps = group["eps"]
+            weight_decay = group["weight_decay"]
+            
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+                
+                state = self.state[p]
+
+                # get time t
+                t = state.get("t", 1)  # Get iteration number (default 1)
+                grad = p.grad.data  # Get gradient
+
+                # update moments: m, v
+                # m ← β_1 * m + (1 - β_1) * g
+                m = betas[0] * state.get("m", torch.zeros_like(p.data)) + (1 - betas[0]) * grad
+                # v ← β_2 * v + (1 - β_2) * g²
+                v = betas[1] * state.get("v", torch.zeros_like(p.data)) + (1 - betas[1]) * grad**2
+
+                # compute bias-corrected learning rate: α_t
+                alpha_t = lr * math.sqrt(1 - betas[1]**t) / (1 - betas[0]**t)
+
+                # update parameter with Adam step
+                p.data -= alpha_t * m / (torch.sqrt(v) + eps)
+
+                # weight decay
+                # θ ← θ - α * λ * θ
+                p.data -= lr * weight_decay * p.data
+
+                # increment iteration counter t
+                state["t"] = t + 1
+                # update moments: m, v
+                state["m"] = m
+                state["v"] = v
+
         return loss
 
