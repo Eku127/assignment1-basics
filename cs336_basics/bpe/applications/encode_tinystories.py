@@ -17,45 +17,216 @@ from cs336_basics.bpe import Tokenizer
 import numpy as np
 import os
 import time
+from tqdm import tqdm
+from multiprocessing import Pool, cpu_count
+from pathlib import Path
 
-def encode_file(tokenizer, input_path, output_path):
-    """Encode a text file and save as numpy array."""
-    print(f"  Reading: {input_path}")
+
+def encode_documents_worker(args):
+    """
+    Worker function: encode a batch of documents.
     
-    tokens = []
+    Args:
+        args: (documents, vocab_path, merges_path, special_token, worker_id)
+        
+    Returns:
+        (worker_id, token_ids, doc_count, error_count)
+    """
+    documents, vocab_path, merges_path, special_token, worker_id = args
+    
+    try:
+        # Create tokenizer in each worker process
+        tokenizer = Tokenizer.from_files(
+            vocab_path,
+            merges_path,
+            special_tokens=[special_token]
+        )
+        
+        all_token_ids = []
+        doc_count = 0
+        error_count = 0
+        
+        for doc in documents:
+            try:
+                token_ids = tokenizer.encode(doc)
+                all_token_ids.extend(token_ids)
+                doc_count += 1
+            except Exception:
+                error_count += 1
+                continue
+        
+        return (worker_id, all_token_ids, doc_count, error_count)
+        
+    except Exception as e:
+        print(f"Worker {worker_id} failed: {e}")
+        return (worker_id, [], 0, len(documents))
+
+
+def load_documents_batches(data_path: str, batch_size: int = 1000):
+    """
+    Load documents and split into batches.
+    
+    Args:
+        data_path: Path to data file
+        batch_size: Batch size for processing
+        
+    Returns:
+        List of document batches
+    """
+    print(f"  📖 Reading file: {data_path}")
+    
+    documents = []
+    current_doc = ""
+    
+    with open(data_path, 'r', encoding='utf-8') as f:
+        for line in tqdm(f, desc="  Loading", unit=" lines"):
+            # Check if line contains <|endoftext|>
+            if "<|endoftext|>" in line:
+                parts = line.split("<|endoftext|>")
+                
+                # Add content before <|endoftext|> to current document
+                if parts[0].strip():
+                    current_doc += parts[0]
+                
+                # Save current document if not empty
+                if current_doc.strip():
+                    documents.append(current_doc.strip())
+                    current_doc = ""
+                
+                # Start new document with content after <|endoftext|>
+                if len(parts) > 1 and parts[1].strip():
+                    current_doc = parts[1]
+            else:
+                # Regular line, add to current document
+                current_doc += line
+    
+    # Handle last document
+    if current_doc.strip():
+        documents.append(current_doc.strip())
+    
+    # Split into batches
+    batches = []
+    for i in range(0, len(documents), batch_size):
+        batch = documents[i:i + batch_size]
+        batches.append(batch)
+    
+    print(f"  ✅ Loaded {len(documents):,} documents → {len(batches)} batches")
+    return batches
+
+
+def encode_file_parallel(tokenizer_paths, input_path, output_path, num_processes=None, batch_size=1000):
+    """
+    Encode a text file using parallel processing and save as numpy array.
+    
+    Args:
+        tokenizer_paths: (vocab_path, merges_path, special_token)
+        input_path: Input text file path
+        output_path: Output .npy file path
+        num_processes: Number of processes (None = auto)
+        batch_size: Batch size for processing
+        
+    Returns:
+        Encoding statistics dict
+    """
+    vocab_path, merges_path, special_token = tokenizer_paths
+    
+    if num_processes is None:
+        num_processes = min(cpu_count(), 8)  # Limit max processes
+    
+    print(f"\n🚀 Encoding: {Path(input_path).name}")
+    print(f"  Using {num_processes} processes, batch size: {batch_size}")
+    
+    # 1. Load document batches
     start_time = time.time()
+    doc_batches = load_documents_batches(input_path, batch_size)
+    load_time = time.time() - start_time
     
-    with open(input_path, "r", encoding="utf-8") as f:
-        for i, token_id in enumerate(tokenizer.encode_iterable(f)):
-            tokens.append(token_id)
-            if (i + 1) % 10_000_000 == 0:
-                elapsed = time.time() - start_time
-                rate = (i + 1) / elapsed / 1e6
-                print(f"    Processed {i+1:,} tokens ({rate:.1f}M tokens/sec)")
+    # 2. Prepare worker arguments
+    worker_args = []
+    for i, batch in enumerate(doc_batches):
+        worker_args.append((batch, vocab_path, merges_path, special_token, i))
     
-    # Save as numpy array
-    token_array = np.array(tokens, dtype=np.uint16)
+    # 3. Parallel encoding
+    print(f"  🔄 Encoding documents...")
+    encode_start = time.time()
+    
+    with Pool(processes=num_processes) as pool:
+        results = list(tqdm(
+            pool.imap(encode_documents_worker, worker_args),
+            total=len(worker_args),
+            desc="  Progress",
+            unit=" batch"
+        ))
+    
+    encode_time = time.time() - encode_start
+    
+    # 4. Merge results
+    print(f"  🔗 Merging results...")
+    all_token_ids = []
+    total_docs = 0
+    total_errors = 0
+    
+    # Sort results by worker_id to maintain order
+    results.sort(key=lambda x: x[0])
+    
+    for worker_id, token_ids, doc_count, error_count in results:
+        all_token_ids.extend(token_ids)
+        total_docs += doc_count
+        total_errors += error_count
+    
+    # 5. Convert to numpy array
+    token_array = np.array(all_token_ids, dtype=np.uint16)
+    
+    # 6. Analyze results
+    min_id = np.min(token_array)
+    max_id = np.max(token_array)
+    unique_ids = len(np.unique(token_array))
+    
+    # 7. Save data
+    print(f"  💾 Saving...")
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     np.save(output_path, token_array)
     
-    elapsed = time.time() - start_time
-    rate = len(tokens) / elapsed / 1e6
+    # Also save binary format
+    binary_path = output_path.replace('.npy', '.bin')
+    token_array.tofile(binary_path)
     
-    print(f"  ✅ Saved: {output_path}")
-    print(f"     Tokens: {len(tokens):,}")
-    print(f"     Size: {token_array.nbytes / 1e6:.1f} MB")
-    print(f"     Time: {elapsed:.1f}s ({rate:.1f}M tokens/sec)")
+    file_size_mb = Path(output_path).stat().st_size / 1024 / 1024
+    binary_size_mb = Path(binary_path).stat().st_size / 1024 / 1024
     
-    return len(tokens)
+    total_time = load_time + encode_time
+    
+    # Print summary
+    print(f"\n  ✅ Encoding Complete!")
+    print(f"     Documents: {total_docs:,} ({total_errors} errors)")
+    print(f"     Tokens: {len(token_array):,}")
+    print(f"     Token ID range: {min_id} - {max_id}")
+    print(f"     Unique tokens: {unique_ids:,}")
+    print(f"     File size: {file_size_mb:.2f} MB (numpy), {binary_size_mb:.2f} MB (binary)")
+    print(f"     Time: {total_time:.1f}s ({len(token_array)/total_time/1e6:.1f}M tokens/sec)")
+    
+    return {
+        'doc_count': total_docs,
+        'error_count': total_errors,
+        'total_tokens': len(token_array),
+        'unique_tokens': unique_ids,
+        'min_id': int(min_id),
+        'max_id': int(max_id),
+        'file_size_mb': file_size_mb,
+        'processing_time': total_time,
+        'tokens_per_second': len(token_array) / total_time
+    }
 
 def main():
     print("=" * 60)
-    print("Encoding TinyStories Dataset")
+    print("Encoding TinyStories Dataset (Parallel)")
     print("=" * 60)
     
     # Get paths relative to project root
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
     vocab_path = os.path.join(project_root, "data/tokenizers/tinystories_vocab.json")
     merges_path = os.path.join(project_root, "data/tokenizers/tinystories_merges.txt")
+    special_token = "<|endoftext|>"
     
     if not os.path.exists(vocab_path) or not os.path.exists(merges_path):
         print(f"\n❌ Error: Tokenizer not found!")
@@ -66,53 +237,75 @@ def main():
         print(f"     uv run python cs336_basics/bpe/applications/train_tinystories_tokenizer.py")
         return
     
-    # Load tokenizer
-    print(f"\n📂 Loading tokenizer...")
+    # Verify tokenizer
+    print(f"\n📂 Verifying tokenizer...")
     print(f"  Vocabulary: {vocab_path}")
     print(f"  Merges: {merges_path}")
     
+    # Quick load to get vocab size
     tokenizer = Tokenizer.from_files(
         vocab_filepath=vocab_path,
         merges_filepath=merges_path,
-        special_tokens=["<|endoftext|>"]
+        special_tokens=[special_token]
     )
-    
-    print(f"  ✅ Loaded tokenizer (vocab_size={len(tokenizer.vocab)})")
+    vocab_size = len(tokenizer.vocab)
+    print(f"  ✅ Tokenizer ready (vocab_size={vocab_size})")
     
     # Create output directory
     encoded_dir = os.path.join(project_root, "data/encoded")
     os.makedirs(encoded_dir, exist_ok=True)
     
+    # Tokenizer paths for workers
+    tokenizer_paths = (vocab_path, merges_path, special_token)
+    
     # Encode training set
-    print(f"\n🚀 Encoding training set...")
-    train_tokens = encode_file(
-        tokenizer,
+    train_stats = encode_file_parallel(
+        tokenizer_paths,
         os.path.join(project_root, "data/TinyStoriesV2-GPT4-train.txt"),
-        os.path.join(encoded_dir, "tinystories_train.npy")
+        os.path.join(encoded_dir, "tinystories_train.npy"),
+        num_processes=None,  # Auto-detect
+        batch_size=1000
     )
     
     # Encode validation set
-    print(f"\n🚀 Encoding validation set...")
-    val_tokens = encode_file(
-        tokenizer,
+    val_stats = encode_file_parallel(
+        tokenizer_paths,
         os.path.join(project_root, "data/TinyStoriesV2-GPT4-valid.txt"),
-        os.path.join(encoded_dir, "tinystories_valid.npy")
+        os.path.join(encoded_dir, "tinystories_valid.npy"),
+        num_processes=None,  # Auto-detect
+        batch_size=1000
     )
     
-    # Print summary
+    # Print final summary
     print("\n" + "=" * 60)
-    print("✅ Encoding Complete!")
+    print("✅ All Encoding Complete!")
     print("=" * 60)
-    print(f"  Training tokens: {train_tokens:,}")
-    print(f"  Validation tokens: {val_tokens:,}")
-    print(f"  Vocabulary size: {len(tokenizer.vocab)}")
-    print(f"\nOutput files:")
-    print(f"  - data/encoded/tinystories_train.npy")
-    print(f"  - data/encoded/tinystories_val.npy")
-    print("\nNext steps:")
-    print("  1. Load data in training code:")
-    print('     train_data = np.load("data/encoded/tinystories_train.npy", mmap_mode="r")')
-    print("  2. Use memory-mapped mode for large files to save RAM")
+    print(f"\n📊 Training Set:")
+    print(f"  Documents: {train_stats['doc_count']:,}")
+    print(f"  Tokens: {train_stats['total_tokens']:,}")
+    print(f"  Speed: {train_stats['tokens_per_second']/1e6:.1f}M tokens/sec")
+    print(f"  File: tinystories_train.npy ({train_stats['file_size_mb']:.2f} MB)")
+    
+    print(f"\n📊 Validation Set:")
+    print(f"  Documents: {val_stats['doc_count']:,}")
+    print(f"  Tokens: {val_stats['total_tokens']:,}")
+    print(f"  Speed: {val_stats['tokens_per_second']/1e6:.1f}M tokens/sec")
+    print(f"  File: tinystories_valid.npy ({val_stats['file_size_mb']:.2f} MB)")
+    
+    print(f"\n📈 Overall:")
+    print(f"  Total tokens: {train_stats['total_tokens'] + val_stats['total_tokens']:,}")
+    print(f"  Vocabulary size: {vocab_size:,}")
+    print(f"  Token coverage: {max(train_stats['unique_tokens'], val_stats['unique_tokens']):,} / {vocab_size:,}")
+    
+    print(f"\n📁 Output files:")
+    print(f"  - data/encoded/tinystories_train.npy + .bin")
+    print(f"  - data/encoded/tinystories_valid.npy + .bin")
+    
+    print(f"\n🚀 Next steps:")
+    print(f"  1. Load in training code:")
+    print(f'     train_data = np.load("data/encoded/tinystories_train.npy", mmap_mode="r")')
+    print(f"  2. Use memory-mapped mode for large files to save RAM")
+    print(f"  3. Binary files (.bin) can be used with np.memmap for faster loading")
     print("=" * 60)
 
 if __name__ == "__main__":
