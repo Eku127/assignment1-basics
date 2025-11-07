@@ -59,9 +59,15 @@ def save_checkpoint(
     # Hints:
     # 1. Create checkpoint dictionary with model, optimizer, iteration
     # 2. Use torch.save(checkpoint, out)
-    
-    raise NotImplementedError("Checkpoint saving not yet implemented")
 
+    # get the checkpoint dictionary with model, optimizer, iteration
+    checkpoint = {
+        'model': model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'iteration': iteration,
+    }
+    # use torch.save(checkpoint, out) to save the checkpoint
+    torch.save(checkpoint, out)
 
 def load_checkpoint(
     src: Union[str, os.PathLike, BinaryIO],
@@ -109,6 +115,12 @@ def load_checkpoint(
     # 2. Restore model with model.load_state_dict(checkpoint['model'])
     # 3. Restore optimizer with optimizer.load_state_dict(checkpoint['optimizer'])
     # 4. Return checkpoint['iteration']
-    
-    raise NotImplementedError("Checkpoint loading not yet implemented")
 
+    # load the checkpoint
+    checkpoint = torch.load(src)
+    # restore the model with model.load_state_dict(checkpoint['model'])
+    model.load_state_dict(checkpoint['model'])
+    # restore the optimizer with optimizer.load_state_dict(checkpoint['optimizer'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    # return the iteration
+    return checkpoint['iteration']
