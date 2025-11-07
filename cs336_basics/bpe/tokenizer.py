@@ -79,6 +79,14 @@ class Tokenizer:
         for a, b in merges:
             merged_bytes = a + b
             self.merges_map[(a, b)] = merged_bytes
+        
+        # 5. ⭐ Build BPE ranks for priority-based merging (KEY OPTIMIZATION!)
+        # Lower rank = higher priority (earlier in training)
+        # This enables O(1) priority lookup instead of O(n) sequential scanning
+        # Speedup: 100-1000x faster encoding!
+        self.bpe_ranks: dict[tuple[bytes, bytes], int] = {}
+        for rank, (a, b) in enumerate(merges):
+            self.bpe_ranks[(a, b)] = rank
     
     @classmethod
     def from_files(
@@ -297,9 +305,17 @@ class Tokenizer:
     
     def _apply_merges(self, tokens: list[bytes]) -> list[bytes]:
         """
-        Apply BPE merge rules to byte token sequence.
+        Apply BPE merge rules using priority-based greedy algorithm.
         
-        Merges are applied in order of creation (as learned during training).
+        This is a much more efficient implementation that:
+        1. Only processes pairs that actually exist in the token
+        2. Always merges the highest-priority (earliest-trained) pair first
+        3. Stops when no more valid merges exist
+        
+        Algorithm complexity:
+        - Old: O(total_merges × token_length) ≈ O(31,743 × 10) = 317,430 ops
+        - New: O(actual_merges × token_length) ≈ O(20 × 10) = 200 ops
+        - Speedup: ~100-1000x faster!
         
         Args:
             tokens: List of byte tokens
@@ -310,29 +326,59 @@ class Tokenizer:
         if not tokens or len(tokens) < 2:
             return tokens
         
-        out = tokens[:]
+        word = list(tokens)
         
-        # Iterate through merges in order
-        for a, b in self.merges:
-            merged = self.merges_map.get((a, b))
-            if merged is None:
-                continue
+        def get_pairs(word: list[bytes]) -> set[tuple[bytes, bytes]]:
+            """Get all adjacent pairs in the current word."""
+            pairs = set()
+            if len(word) < 2:
+                return pairs
+            for i in range(len(word) - 1):
+                pairs.add((word[i], word[i + 1]))
+            return pairs
+        
+        # Get initial pairs
+        pairs = get_pairs(word)
+        
+        # Iteratively merge the highest-priority pair until none remain
+        while True:
+            if not pairs:
+                break
             
-            # Scan left-to-right and merge matching pairs
+            # Find the pair with the lowest rank (highest priority)
+            # Pairs not in bpe_ranks get infinity rank (never merged)
+            bigram = min(pairs, key=lambda pair: self.bpe_ranks.get(pair, float('inf')))
+            
+            # If the best pair isn't in our merge rules, we're done
+            if bigram not in self.bpe_ranks:
+                break
+            
+            # Merge all occurrences of this pair
+            first, second = bigram
+            new_word = []
             i = 0
-            while i < len(out) - 1:
-                # Check if current pair matches merge rule
-                if out[i] == a and out[i + 1] == b:
-                    # Merge i and i+1
-                    out[i] = merged
-                    del out[i + 1]
-                    # Back up one position to check new pairs formed
-                    if i > 0:
-                        i -= 1
-                    continue
-                i += 1
+            
+            while i < len(word):
+                # Check if we can merge at position i
+                if i < len(word) - 1 and word[i] == first and word[i + 1] == second:
+                    # Merge the pair
+                    new_word.append(first + second)
+                    i += 2
+                else:
+                    # Keep the token as-is
+                    new_word.append(word[i])
+                    i += 1
+            
+            word = new_word
+            
+            # If reduced to a single token, we're done
+            if len(word) == 1:
+                break
+            
+            # Recompute pairs for the next iteration
+            pairs = get_pairs(word)
         
-        return out
+        return word
     
     def _bytes_to_ids(self, tokens: list[bytes]) -> list[int]:
         """

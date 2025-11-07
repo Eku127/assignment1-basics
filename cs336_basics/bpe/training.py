@@ -11,6 +11,7 @@ This module implements the BPE training algorithm following the assignment speci
 import os
 from collections import Counter, defaultdict
 from typing import Union
+from tqdm import tqdm
 
 from cs336_basics.bpe.utils import (
     split_on_special_tokens,
@@ -95,7 +96,7 @@ def train_bpe(
     corpus_ids: list[list[int]] = []
     corpus_counts: list[int] = []
     
-    for byte_tuple, count in freq.items():
+    for byte_tuple, count in tqdm(freq.items(), desc="Converting to IDs", unit="sequence"):
         ids = [bytes_to_id[bytes([b])] for b in byte_tuple]
         corpus_ids.append(ids)
         corpus_counts.append(count)
@@ -124,7 +125,7 @@ def train_bpe(
     total_pair_counts: dict[tuple[int, int], int] = defaultdict(int)
     pair_to_words: dict[tuple[int, int], set[int]] = defaultdict(set)
     
-    for i, ids in enumerate(corpus_ids):
+    for i, ids in enumerate(tqdm(corpus_ids, desc="Computing pairs", unit="sequence")):
         ctr = pairs_for_ids(ids)
         word_pair_counters.append(ctr)
         c = corpus_counts[i]
@@ -200,70 +201,51 @@ def train_bpe(
                     s.add(i)
     
     # 5. Main merge loop
-    import sys
-    
-    print(f"\n🔄 Starting BPE training: {max_merges} merges needed")
-    print(f"   Initial vocab size: {initial_vocab_size}")
-    print(f"   Target vocab size: {vocab_size}")
-    print(f"   Progress updates every 1000 merges\n")
+    print(f"\n🔄 Starting BPE training: {max_merges:,} merges needed")
+    print(f"   Initial vocab size: {initial_vocab_size:,}")
+    print(f"   Target vocab size: {vocab_size:,}\n")
     
     start_time = time.time()
-    last_update_time = start_time
     
-    for merge_idx in range(max_merges):
-        if not total_pair_counts:
-            print(f"\n⚠️  No more pairs to merge at iteration {merge_idx}")
-            break
-        
-        # Progress reporting every 1000 merges
-        if merge_idx > 0 and merge_idx % 1000 == 0:
-            current_time = time.time()
-            elapsed = current_time - start_time
-            elapsed_since_update = current_time - last_update_time
-            rate = 1000.0 / elapsed_since_update if elapsed_since_update > 0 else 0
-            progress_pct = (merge_idx / max_merges) * 100
-            current_vocab_size = initial_vocab_size + merge_idx
+    # Use tqdm for visual progress bar
+    with tqdm(total=max_merges, desc="Merging pairs", unit="merge") as pbar:
+        for merge_idx in range(max_merges):
+            if not total_pair_counts:
+                pbar.set_description("Complete (no more pairs)")
+                break
             
-            # Estimate time remaining
-            if merge_idx > 0:
-                avg_time_per_merge = elapsed / merge_idx
-                remaining_merges = max_merges - merge_idx
-                eta_seconds = avg_time_per_merge * remaining_merges
-                eta_minutes = eta_seconds / 60
-                eta_str = f"{int(eta_minutes)}m {int(eta_seconds % 60)}s"
-            else:
-                eta_str = "calculating..."
+            # Select (count, pair) maximum; tie-break lexicographically by bytes
+            def pair_key(p: tuple[int, int]):
+                a, b = p
+                return (total_pair_counts[p], id_to_bytes[a], id_to_bytes[b])
             
-            print(f"   [{merge_idx:5d}/{max_merges}] {progress_pct:5.1f}% | "
-                  f"Vocab: {current_vocab_size:5d}/{vocab_size} | "
-                  f"Rate: {rate:5.1f} merges/s | "
-                  f"ETA: {eta_str}")
-            sys.stdout.flush()
-            last_update_time = current_time
-        
-        # Select (count, pair) maximum; tie-break lexicographically by bytes
-        def pair_key(p: tuple[int, int]):
-            a, b = p
-            return (total_pair_counts[p], id_to_bytes[a], id_to_bytes[b])
-        
-        best_pair = max(total_pair_counts.keys(), key=pair_key)
-        a, b = best_pair
-        
-        # Create new token representing bytes concatenation
-        bytes_a = id_to_bytes[a]
-        bytes_b = id_to_bytes[b]
-        new_bytes = bytes_a + bytes_b
-        new_id = next_id
-        next_id += 1
-        
-        id_to_bytes[new_id] = new_bytes
-        
-        # Update only affected words and global counts
-        merge_pair(a, b, new_id)
-        merges.append((bytes_a, bytes_b))
-        
-        if len(id_to_bytes) >= vocab_size:
-            break
+            best_pair = max(total_pair_counts.keys(), key=pair_key)
+            a, b = best_pair
+            
+            # Create new token representing bytes concatenation
+            bytes_a = id_to_bytes[a]
+            bytes_b = id_to_bytes[b]
+            new_bytes = bytes_a + bytes_b
+            new_id = next_id
+            next_id += 1
+            
+            id_to_bytes[new_id] = new_bytes
+            
+            # Update only affected words and global counts
+            merge_pair(a, b, new_id)
+            merges.append((bytes_a, bytes_b))
+            
+            # Update progress bar with detailed info
+            pbar.set_postfix({
+                'current_merge': f"{bytes_a!r} + {bytes_b!r}",
+                'vocab_size': len(id_to_bytes),
+                'pairs_left': len(total_pair_counts)
+            })
+            pbar.update(1)
+            
+            if len(id_to_bytes) >= vocab_size:
+                pbar.set_description("Complete (target vocab size reached)")
+                break
     
     # Final progress update
     total_time = time.time() - start_time
