@@ -63,11 +63,19 @@ def get_lr_cosine_schedule(
         └──────────────────────────> t
          warmup  cosine    constant
     """
-    # TODO: Implement cosine annealing schedule with warmup
-    # Hints:
-    # 1. Warmup phase: linear increase from 0 to max_lr
-    # 2. Cosine phase: smooth decay using cosine function
-    # 3. Post-anneal: constant min_lr
+    # Warmup phase: linear increase from 0 to max_lr
+    if t < warmup_iters:
+        return max_lr * t / warmup_iters
     
-    raise NotImplementedError("Learning rate scheduler not yet implemented")
+    # Cosine annealing phase: smooth decay from max_lr to min_lr
+    elif t <= cosine_cycle_iters:
+        # Calculate progress through the cosine phase (0 to 1)
+        progress = (t - warmup_iters) / (cosine_cycle_iters - warmup_iters)
+        # Apply cosine decay
+        cosine_decay = 0.5 * (1 + math.cos(progress * math.pi))
+        return min_lr + cosine_decay * (max_lr - min_lr)
+    
+    # Post-annealing phase: constant min_lr
+    else:
+        return min_lr
 
