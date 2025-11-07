@@ -166,9 +166,47 @@ def train_bpe(
                     s.add(i)
     
     # 5. Main merge loop
-    for _ in range(max_merges):
+    import sys
+    import time
+    
+    print(f"\n🔄 Starting BPE training: {max_merges} merges needed")
+    print(f"   Initial vocab size: {initial_vocab_size}")
+    print(f"   Target vocab size: {vocab_size}")
+    print(f"   Progress updates every 1000 merges\n")
+    
+    start_time = time.time()
+    last_update_time = start_time
+    
+    for merge_idx in range(max_merges):
         if not total_pair_counts:
+            print(f"\n⚠️  No more pairs to merge at iteration {merge_idx}")
             break
+        
+        # Progress reporting every 1000 merges
+        if merge_idx > 0 and merge_idx % 1000 == 0:
+            current_time = time.time()
+            elapsed = current_time - start_time
+            elapsed_since_update = current_time - last_update_time
+            rate = 1000.0 / elapsed_since_update if elapsed_since_update > 0 else 0
+            progress_pct = (merge_idx / max_merges) * 100
+            current_vocab_size = initial_vocab_size + merge_idx
+            
+            # Estimate time remaining
+            if merge_idx > 0:
+                avg_time_per_merge = elapsed / merge_idx
+                remaining_merges = max_merges - merge_idx
+                eta_seconds = avg_time_per_merge * remaining_merges
+                eta_minutes = eta_seconds / 60
+                eta_str = f"{int(eta_minutes)}m {int(eta_seconds % 60)}s"
+            else:
+                eta_str = "calculating..."
+            
+            print(f"   [{merge_idx:5d}/{max_merges}] {progress_pct:5.1f}% | "
+                  f"Vocab: {current_vocab_size:5d}/{vocab_size} | "
+                  f"Rate: {rate:5.1f} merges/s | "
+                  f"ETA: {eta_str}")
+            sys.stdout.flush()
+            last_update_time = current_time
         
         # Select (count, pair) maximum; tie-break lexicographically by bytes
         def pair_key(p: tuple[int, int]):
@@ -193,6 +231,16 @@ def train_bpe(
         
         if len(id_to_bytes) >= vocab_size:
             break
+    
+    # Final progress update
+    total_time = time.time() - start_time
+    final_vocab_size = len(id_to_bytes)
+    print(f"\n✅ BPE training completed!")
+    print(f"   Total merges: {len(merges)}")
+    print(f"   Final vocab size: {final_vocab_size}")
+    print(f"   Total time: {total_time:.1f}s ({total_time/60:.1f} minutes)")
+    if len(merges) > 0:
+        print(f"   Average: {total_time/len(merges):.3f}s per merge\n")
     
     # Trim vocab to requested size (it will already be exact unless early break)
     if len(id_to_bytes) > vocab_size:
