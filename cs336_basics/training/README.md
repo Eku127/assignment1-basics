@@ -18,11 +18,11 @@ This module covers **Sections 4, 5, and 6** of the assignment:
 | AdamW Optimizer | `optimizer.py` | ✅ DONE | 2 | `test_adamw` | `uv run pytest tests/test_optimizer.py::test_adamw -v` |
 | LR Scheduling | `lr_scheduler.py` | ✅ DONE | 1 | `test_get_lr_cosine_schedule` | `uv run pytest tests/test_optimizer.py::test_get_lr_cosine_schedule -v` |
 | Gradient Clipping | `gradient_clipping.py` | ✅ DONE | 1 | `test_gradient_clipping` | `uv run pytest tests/test_nn_utils.py::test_gradient_clipping -v` |
-| Data Loading | `data_loader.py` | ⬜ TODO | 2 | `test_get_batch` | `uv run pytest tests/test_data.py::test_get_batch -v` |
+| Data Loading | `data_loader.py` | ✅ DONE | 2 | `test_get_batch` | `uv run pytest tests/test_data.py::test_get_batch -v` |
 | Checkpointing | `checkpoint.py` | ⬜ TODO | 1 | `test_checkpointing` | `uv run pytest tests/test_checkpoint.py::test_checkpointing -v` |
 | Training Loop | `train.py` | ⬜ TODO | 4 | - | Manual testing |
 | Text Generation | `decode.py` | ⬜ TODO | 3 | - | Manual testing |
-| **Total** | | **5/9** | **15** | | |
+| **Total** | | **6/9** | **15** | | |
 
 ---
 
@@ -428,6 +428,15 @@ With B=2, m=3:
 - No padding needed (uniform length)
 - Memory-efficient with `np.memmap` for large datasets
 - Device-aware (CPU/CUDA/MPS support)
+
+**Implementation Details:**
+1. **Random Sampling**: Uses `np.random.randint()` to sample `batch_size` starting positions from `[0, len(data) - context_length)`
+2. **Sequence Extraction**: For each starting position `i`, extracts:
+   - Input: `data[i:i+context_length]` (length `context_length`)
+   - Target: `data[i+1:i+context_length+1]` (offset by 1 for next-token prediction)
+3. **Batch Construction**: Uses list comprehension to extract sequences, then converts to NumPy array
+4. **Tensor Conversion**: Converts NumPy arrays to PyTorch tensors and moves to specified device
+5. **Data Handling**: Accepts both regular NumPy arrays and memory-mapped arrays (memmap objects)
 
 **Implementation:**
 ```python

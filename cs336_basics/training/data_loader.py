@@ -66,7 +66,6 @@ def get_batch(
     Device Support:
         - 'cpu': Standard CPU
         - 'cuda' or 'cuda:0': NVIDIA GPU
-        - 'mps': Apple Silicon (M1/M2/M3)
     """
     # TODO: Implement batch sampling
     # Hints:
@@ -75,6 +74,18 @@ def get_batch(
     # 3. Extract targets: targets[i] = data[start+1:start+context_length+1]
     # 4. Convert to PyTorch tensors and move to device
     # 5. Return (inputs, targets)
-    
-    raise NotImplementedError("Data loading not yet implemented")
 
+    # randomly sample B starting positions from [0, n - context_length)
+    start_positions = np.random.randint(0, len(data) - context_length, batch_size)
+
+    # extract sequences: inputs[i] = data[start:start+context_length]
+    inputs = np.array([data[i:i+context_length] for i in start_positions])
+    # convert to PyTorch tensors and move to device
+    inputs = torch.from_numpy(inputs).to(device) # (batch_size, context_length)
+
+    # extract targets: targets[i] = data[start+1:start+context_length+1]
+    targets = np.array([data[i+1:i+context_length+1] for i in start_positions]) # (batch_size, context_length)
+    # convert to PyTorch tensors and move to device
+    targets = torch.from_numpy(targets).to(device) # (batch_size, context_length)
+
+    return inputs, targets
