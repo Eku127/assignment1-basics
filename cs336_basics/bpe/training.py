@@ -74,9 +74,11 @@ def train_bpe(
     del text
     
     # 2. Pre-tokenize segments and count frequency
-    print(f"🔤 Pre-tokenizing with GPT-2 regex (this may take a while for large corpora)...")
+    print(f"🔤 Pre-tokenizing with GPT-2 regex...")
+    if len(segments) >= 10000:
+        print(f"   Large corpus detected ({len(segments):,} segments), using parallel processing...")
     start_pretok = time.time()
-    freq = pretokenize(segments)
+    freq = pretokenize(segments, use_multiprocessing=True, show_progress=True)
     pretok_time = time.time() - start_pretok
     print(f"✅ Pre-tokenization complete in {pretok_time:.1f}s ({pretok_time/60:.1f} minutes)")
     print(f"   Found {len(freq):,} unique byte sequences")

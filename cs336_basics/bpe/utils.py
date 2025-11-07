@@ -5,11 +5,14 @@ This module contains helper functions for BPE tokenization, including:
 - Pre-tokenization using regex patterns
 - Special token handling
 - Vocabulary initialization
+- Optimized parallel pre-tokenization
 """
 
 import re
 from collections import defaultdict
 from typing import Iterable
+from multiprocessing import Pool, cpu_count
+from tqdm import tqdm
 
 import regex as regex_mod  # Faster regex engine with \p classes
 
@@ -52,33 +55,144 @@ def split_on_special_tokens(text: str, special_tokens: list[str]) -> list[str]:
     return [seg for seg in parts if seg and seg not in special_tokens]
 
 
-def pretokenize(text_iter: Iterable[str]) -> dict[tuple[int, ...], int]:
+def _pretokenize_chunk_batch(chunks: list[str]) -> dict[tuple[int, ...], int]:
     """
-    Pre-tokenize text using GPT-2 style regex pattern.
+    Batch pre-tokenize multiple document chunks to reduce inter-process communication.
     
-    Returns frequency dict of pre-tokens represented as UTF-8 byte tuples.
+    This is a worker function for parallel pre-tokenization.
     
     Args:
-        text_iter: Iterable of text chunks to pre-tokenize
+        chunks: List of text chunks to process
     
     Returns:
-        Dictionary mapping byte tuples to their frequency counts
-    
-    Example:
-        >>> text = ["hello world"]
-        >>> freq = pretokenize(text)
-        >>> # freq will contain byte tuples for "hello" and " world"
+        Frequency dictionary of byte tuples
     """
     pat = regex_mod.compile(GPT2_PRETOKENIZER_PATTERN)
     freq: dict[tuple[int, ...], int] = defaultdict(int)
     
-    for chunk in text_iter:
+    for chunk in chunks:
         for m in pat.finditer(chunk):
             token = m.group(0)
             bs = token.encode("utf-8")
             freq[tuple(bs)] += 1
     
-    return freq
+    return dict(freq)
+
+
+def pretokenize(
+    text_iter: Iterable[str],
+    use_multiprocessing: bool = True,
+    num_processes: int = None,
+    show_progress: bool = True
+) -> dict[tuple[int, ...], int]:
+    """
+    Pre-tokenize text using GPT-2 style regex pattern with optional parallelization.
+    
+    Automatically chooses between single-threaded and multi-process based on data size.
+    For large corpora (>10k segments), uses multiprocessing for significant speedup.
+    
+    Args:
+        text_iter: Iterable of text chunks to pre-tokenize
+        use_multiprocessing: Whether to use multiprocessing (default: True)
+        num_processes: Number of processes (None = auto-detect based on CPU count)
+        show_progress: Whether to show tqdm progress bar (default: True)
+    
+    Returns:
+        Dictionary mapping byte tuples to their frequency counts
+    
+    Example:
+        >>> text = ["hello world", "foo bar"]
+        >>> freq = pretokenize(text)
+        >>> # freq will contain byte tuples for "hello", " world", "foo", " bar"
+    """
+    # Convert to list if needed for length check
+    segments = list(text_iter) if not isinstance(text_iter, list) else text_iter
+    
+    # Use single-threaded for small inputs or if multiprocessing is disabled
+    if not use_multiprocessing or len(segments) < 10000:
+        return _pretokenize_single_thread(segments, show_progress=show_progress)
+    
+    # Use multiprocessing for large inputs
+    return _pretokenize_parallel(segments, num_processes=num_processes, show_progress=show_progress)
+
+
+def _pretokenize_single_thread(
+    segments: list[str],
+    show_progress: bool = True
+) -> dict[tuple[int, ...], int]:
+    """
+    Single-threaded pre-tokenization with optional progress bar.
+    
+    Args:
+        segments: List of text segments
+        show_progress: Whether to show progress bar
+    
+    Returns:
+        Frequency dictionary of byte tuples
+    """
+    pat = regex_mod.compile(GPT2_PRETOKENIZER_PATTERN)
+    freq: dict[tuple[int, ...], int] = defaultdict(int)
+    
+    iterator = tqdm(segments, desc="Pre-tokenizing", unit="segment") if show_progress else segments
+    
+    for chunk in iterator:
+        for m in pat.finditer(chunk):
+            token = m.group(0)
+            bs = token.encode("utf-8")
+            freq[tuple(bs)] += 1
+    
+    return dict(freq)
+
+
+def _pretokenize_parallel(
+    segments: list[str],
+    num_processes: int = None,
+    show_progress: bool = True
+) -> dict[tuple[int, ...], int]:
+    """
+    Parallel pre-tokenization using multiprocessing.
+    
+    Divides segments into batches and processes them in parallel to reduce
+    inter-process communication overhead.
+    
+    Args:
+        segments: List of text segments
+        num_processes: Number of processes (None = auto-detect)
+        show_progress: Whether to show progress bar
+    
+    Returns:
+        Frequency dictionary of byte tuples
+    """
+    if num_processes is None:
+        num_processes = min(cpu_count(), len(segments))
+    
+    # Divide segments into batches to reduce inter-process communication
+    # Use 4x the number of processes to ensure good load balancing
+    batch_size = max(10, len(segments) // (num_processes * 4))
+    batches = [segments[i:i + batch_size] for i in range(0, len(segments), batch_size)]
+    
+    if show_progress:
+        print(f"   Using {num_processes} processes for {len(batches)} batches...")
+    
+    # Parallel processing with progress bar
+    with Pool(processes=num_processes) as pool:
+        if show_progress:
+            batch_freqs = list(tqdm(
+                pool.imap(_pretokenize_chunk_batch, batches),
+                total=len(batches),
+                desc="Pre-tokenizing",
+                unit="batch"
+            ))
+        else:
+            batch_freqs = pool.map(_pretokenize_chunk_batch, batches)
+    
+    # Merge all results
+    total_freq: dict[tuple[int, ...], int] = defaultdict(int)
+    for batch_freq in batch_freqs:
+        for token_tuple, count in batch_freq.items():
+            total_freq[token_tuple] += count
+    
+    return dict(total_freq)
 
 
 def pretokenize_string(text: str) -> list[str]:
