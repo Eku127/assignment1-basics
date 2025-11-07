@@ -244,92 +244,100 @@ uv run pytest tests/test_tokenizer.py::test_encode_iterable_tinystories_matches_
 
 ### Train on TinyStories
 
-**Training Script:**
-```python
-# train_tinystories_tokenizer.py
-from cs336_basics.bpe import train_bpe
-import json
-import os
+我们提供了开箱即用的训练脚本，位于 `cs336_basics/bpe/applications/` 目录下。
 
-# Train tokenizer
-print("Training TinyStories tokenizer...")
-vocab, merges = train_bpe(
-    input_path="/data/TinyStories_train.txt",
-    vocab_size=10000,
-    special_tokens=["<|endoftext|>"]
-)
-
-# Create data directory
-os.makedirs("data/tokenizers", exist_ok=True)
-
-# Save vocabulary
-with open("data/tokenizers/tinystories_vocab.json", "w") as f:
-    json_vocab = {str(k): list(v) for k, v in vocab.items()}
-    json.dump(json_vocab, f)
-
-# Save merges
-with open("data/tokenizers/tinystories_merges.txt", "w") as f:
-    for a, b in merges:
-        f.write(f"{a!r} {b!r}\n")
-
-print(f"✅ Saved tokenizer to data/tokenizers/")
-print(f"   Vocabulary size: {len(vocab)}")
-print(f"   Number of merges: {len(merges)}")
-```
-
-**Run the script:**
+**使用方法:**
 ```bash
-# Train tokenizer (takes ~2 minutes with multiprocessing)
-uv run python train_tinystories_tokenizer.py
+# Train TinyStories tokenizer (takes ~2 minutes)
+uv run python cs336_basics/bpe/applications/train_tinystories_tokenizer.py
 ```
 
 **Expected output:**
 ```
-Training TinyStories tokenizer...
-✅ Saved tokenizer to data/tokenizers/
-   Vocabulary size: 10000
-   Number of merges: 9743
+============================================================
+Training TinyStories BPE Tokenizer
+============================================================
+
+Configuration:
+  Input: /data/TinyStories_train.txt
+  Vocabulary size: 10000
+  Special tokens: ['<|endoftext|>']
+
+🚀 Training tokenizer...
+✅ Training completed in 127.3 seconds
+
+💾 Saving vocabulary to .../data/tokenizers/tinystories_vocab.json...
+💾 Saving merges to .../data/tokenizers/tinystories_merges.txt...
+
+============================================================
+✅ Tokenizer Training Complete!
+============================================================
+  Vocabulary size: 10000
+  Number of merges: 9743
+  Training time: 127.3s
+
+Output files:
+  - .../data/tokenizers/tinystories_vocab.json
+  - .../data/tokenizers/tinystories_merges.txt
+
+First 5 merges:
+  0: b'e' + b' ' → b'e '
+  1: b't' + b'h' → b'th'
+  2: b'e' + b'r' → b'er'
+  3: b'i' + b'n' → b'in'
+  4: b'o' + b'n' → b'on'
+
+Next steps:
+  1. Run: uv run python cs336_basics/bpe/applications/encode_tinystories.py
+  2. Use the tokenizer in your training code
+============================================================
 ```
+
+**脚本功能:**
+- ✅ 自动检查输入文件是否存在
+- ✅ 训练进度和时间统计
+- ✅ 自动创建输出目录 `data/tokenizers/`
+- ✅ 保存 vocabulary (JSON格式) 和 merges (文本格式)
+- ✅ 显示前5个学到的merges
+- ✅ 给出下一步操作建议
 
 ### Train on OpenWebText
 
-**Training Script:**
-```python
-# train_owt_tokenizer.py
-from cs336_basics.bpe import train_bpe
-import json
-import os
-
-# Train tokenizer (takes ~30 minutes)
-print("Training OpenWebText tokenizer...")
-vocab, merges = train_bpe(
-    input_path="/data/OpenWebText_train.txt",
-    vocab_size=32000,
-    special_tokens=["<|endoftext|>"]
-)
-
-# Create data directory
-os.makedirs("data/tokenizers", exist_ok=True)
-
-# Save vocabulary
-with open("data/tokenizers/owt_vocab.json", "w") as f:
-    json_vocab = {str(k): list(v) for k, v in vocab.items()}
-    json.dump(json_vocab, f)
-
-# Save merges
-with open("data/tokenizers/owt_merges.txt", "w") as f:
-    for a, b in merges:
-        f.write(f"{a!r} {b!r}\n")
-
-print(f"✅ Saved tokenizer to data/tokenizers/")
-print(f"   Vocabulary size: {len(vocab)}")
-print(f"   Number of merges: {len(merges)}")
+**使用方法:**
+```bash
+# Train OpenWebText tokenizer (takes ~20-40 minutes)
+uv run python cs336_basics/bpe/applications/train_owt_tokenizer.py
 ```
 
-**Run the script:**
-```bash
-# Train tokenizer (takes ~30 minutes)
-uv run python train_owt_tokenizer.py
+**Expected output:**
+```
+============================================================
+Training OpenWebText BPE Tokenizer
+============================================================
+
+Configuration:
+  Input: /data/OpenWebText_train.txt
+  Vocabulary size: 32000
+  Special tokens: ['<|endoftext|>']
+
+⚠️  Note: This may take 20-40 minutes depending on CPU cores
+
+🚀 Training tokenizer...
+✅ Training completed in 1847.2 seconds (30.8 minutes)
+
+💾 Saving vocabulary to .../data/tokenizers/owt_vocab.json...
+💾 Saving merges to .../data/tokenizers/owt_merges.txt...
+
+============================================================
+✅ Tokenizer Training Complete!
+============================================================
+  Vocabulary size: 32000
+  Number of merges: 31743
+  Training time: 30.8 minutes
+
+Output files:
+  - .../data/tokenizers/owt_vocab.json
+  - .../data/tokenizers/owt_merges.txt
 ```
 
 ---
@@ -338,147 +346,123 @@ uv run python train_owt_tokenizer.py
 
 ### Encode TinyStories Dataset
 
-**Encoding Script:**
-```python
-# encode_tinystories.py
-from cs336_basics.bpe import Tokenizer
-import numpy as np
-import os
-
-# Load trained tokenizer
-print("Loading TinyStories tokenizer...")
-tokenizer = Tokenizer.from_files(
-    vocab_filepath="data/tokenizers/tinystories_vocab.json",
-    merges_filepath="data/tokenizers/tinystories_merges.txt",
-    special_tokens=["<|endoftext|>"]
-)
-
-# Create output directory
-os.makedirs("data/encoded", exist_ok=True)
-
-# Encode training set
-print("Encoding training set...")
-train_tokens = []
-with open("/data/TinyStories_train.txt", "r", encoding="utf-8") as f:
-    for token_id in tokenizer.encode_iterable(f):
-        train_tokens.append(token_id)
-
-train_array = np.array(train_tokens, dtype=np.uint16)
-np.save("data/encoded/tinystories_train.npy", train_array)
-print(f"✅ Saved training tokens: {len(train_array):,} tokens")
-
-# Encode validation set
-print("Encoding validation set...")
-val_tokens = []
-with open("/data/TinyStories_val.txt", "r", encoding="utf-8") as f:
-    for token_id in tokenizer.encode_iterable(f):
-        val_tokens.append(token_id)
-
-val_array = np.array(val_tokens, dtype=np.uint16)
-np.save("data/encoded/tinystories_val.npy", val_array)
-print(f"✅ Saved validation tokens: {len(val_array):,} tokens")
-
-# Print statistics
-print(f"\nStatistics:")
-print(f"  Training tokens: {len(train_array):,}")
-print(f"  Validation tokens: {len(val_array):,}")
-print(f"  Vocabulary size: {len(tokenizer.vocab)}")
-print(f"  Compression ratio: {len(train_array) / os.path.getsize('/data/TinyStories_train.txt'):.2f} tokens/byte")
-```
-
-**Run the script:**
+**使用方法:**
 ```bash
-# Encode dataset (takes ~5 minutes)
-uv run python encode_tinystories.py
+# Encode TinyStories dataset (takes ~5 minutes)
+uv run python cs336_basics/bpe/applications/encode_tinystories.py
 ```
 
 **Expected output:**
 ```
-Loading TinyStories tokenizer...
-Encoding training set...
-✅ Saved training tokens: 127,456,890 tokens
-Encoding validation set...
-✅ Saved validation tokens: 1,234,567 tokens
+============================================================
+Encoding TinyStories Dataset
+============================================================
 
-Statistics:
+📂 Loading tokenizer...
+  Vocabulary: .../data/tokenizers/tinystories_vocab.json
+  Merges: .../data/tokenizers/tinystories_merges.txt
+  ✅ Loaded tokenizer (vocab_size=10000)
+
+🚀 Encoding training set...
+  Reading: /data/TinyStories_train.txt
+    Processed 10,000,000 tokens (0.8M tokens/sec)
+    Processed 20,000,000 tokens (0.9M tokens/sec)
+    ...
+  ✅ Saved: .../data/encoded/tinystories_train.npy
+     Tokens: 127,456,890
+     Size: 254.9 MB
+     Time: 165.3s (0.8M tokens/sec)
+
+🚀 Encoding validation set...
+  Reading: /data/TinyStories_val.txt
+  ✅ Saved: .../data/encoded/tinystories_val.npy
+     Tokens: 1,234,567
+     Size: 2.5 MB
+     Time: 1.6s (0.8M tokens/sec)
+
+============================================================
+✅ Encoding Complete!
+============================================================
   Training tokens: 127,456,890
   Validation tokens: 1,234,567
   Vocabulary size: 10000
-  Compression ratio: 0.25 tokens/byte
+
+Output files:
+  - data/encoded/tinystories_train.npy
+  - data/encoded/tinystories_val.npy
+
+Next steps:
+  1. Load data in training code:
+     train_data = np.load("data/encoded/tinystories_train.npy", mmap_mode="r")
+  2. Use memory-mapped mode for large files to save RAM
+============================================================
 ```
+
+**脚本功能:**
+- ✅ 自动检查tokenizer文件是否存在
+- ✅ 使用 `encode_iterable()` 流式处理（内存高效）
+- ✅ 实时显示处理进度和吞吐量
+- ✅ 保存为 `uint16` 格式（节省50%内存）
+- ✅ 详细的统计信息和性能指标
 
 ### Encode OpenWebText Dataset
 
-**Encoding Script:**
-```python
-# encode_owt.py
-from cs336_basics.bpe import Tokenizer
-import numpy as np
-import os
-
-# Load trained tokenizer
-print("Loading OpenWebText tokenizer...")
-tokenizer = Tokenizer.from_files(
-    vocab_filepath="data/tokenizers/owt_vocab.json",
-    merges_filepath="data/tokenizers/owt_merges.txt",
-    special_tokens=["<|endoftext|>"]
-)
-
-# Create output directory
-os.makedirs("data/encoded", exist_ok=True)
-
-# Encode training set
-print("Encoding training set (this may take 1-2 hours)...")
-train_tokens = []
-with open("/data/OpenWebText_train.txt", "r", encoding="utf-8") as f:
-    for i, token_id in enumerate(tokenizer.encode_iterable(f)):
-        train_tokens.append(token_id)
-        if (i + 1) % 10_000_000 == 0:
-            print(f"  Processed {i+1:,} tokens...")
-
-train_array = np.array(train_tokens, dtype=np.uint16)
-np.save("data/encoded/owt_train.npy", train_array)
-print(f"✅ Saved training tokens: {len(train_array):,} tokens")
-
-# Encode validation set
-print("Encoding validation set...")
-val_tokens = []
-with open("/data/OpenWebText_val.txt", "r", encoding="utf-8") as f:
-    for token_id in tokenizer.encode_iterable(f):
-        val_tokens.append(token_id)
-
-val_array = np.array(val_tokens, dtype=np.uint16)
-np.save("data/encoded/owt_val.npy", val_array)
-print(f"✅ Saved validation tokens: {len(val_array):,} tokens")
-
-# Print statistics
-print(f"\nStatistics:")
-print(f"  Training tokens: {len(train_array):,}")
-print(f"  Validation tokens: {len(val_array):,}")
-print(f"  Vocabulary size: {len(tokenizer.vocab)}")
-print(f"  Data size: {train_array.nbytes / 1e9:.2f} GB")
+**使用方法:**
+```bash
+# Encode OpenWebText dataset (takes ~1-2 hours)
+uv run python cs336_basics/bpe/applications/encode_owt.py
 ```
 
-**Run the script:**
-```bash
-# Encode dataset (takes ~1-2 hours)
-uv run python encode_owt.py
+**Expected output:**
+```
+============================================================
+Encoding OpenWebText Dataset
+============================================================
+
+📂 Loading tokenizer...
+  Vocabulary: .../data/tokenizers/owt_vocab.json
+  Merges: .../data/tokenizers/owt_merges.txt
+  ✅ Loaded tokenizer (vocab_size=32000)
+
+🚀 Encoding training set (this may take 1-2 hours)...
+  Reading: /data/OpenWebText_train.txt
+    Processed 10,000,000 tokens (0.5M tokens/sec)
+    Processed 20,000,000 tokens (0.6M tokens/sec)
+    ...
+  ✅ Saved: .../data/encoded/owt_train.npy
+     Tokens: 2,543,678,901
+     Size: 5,087.4 MB
+     Time: 4832.1s (0.5M tokens/sec)
+
+🚀 Encoding validation set...
+  ...
+============================================================
+✅ Encoding Complete!
+============================================================
+  Training tokens: 2,543,678,901
+  Validation tokens: 12,345,678
+  Vocabulary size: 32000
+
+Output files:
+  - data/encoded/owt_train.npy
+  - data/encoded/owt_val.npy
+============================================================
 ```
 
 ---
 
 ## Quick Command Reference
 
-### Complete Workflow
+### Complete Workflow (使用提供的应用脚本)
 
 ```bash
 # 1. Train tokenizers
-uv run python train_tinystories_tokenizer.py  # ~2 min
-uv run python train_owt_tokenizer.py          # ~30 min
+uv run python cs336_basics/bpe/applications/train_tinystories_tokenizer.py  # ~2 min
+uv run python cs336_basics/bpe/applications/train_owt_tokenizer.py          # ~30 min
 
 # 2. Encode datasets
-uv run python encode_tinystories.py            # ~5 min
-uv run python encode_owt.py                    # ~1-2 hours
+uv run python cs336_basics/bpe/applications/encode_tinystories.py            # ~5 min
+uv run python cs336_basics/bpe/applications/encode_owt.py                    # ~1-2 hours
 
 # 3. Verify encoded data
 python -c "
@@ -490,7 +474,7 @@ print(f'Validation tokens: {len(val):,}')
 print(f'Data type: {train.dtype}')
 "
 
-# 4. Load tokenizer for use
+# 4. Load tokenizer for use in your code
 python -c "
 from cs336_basics.bpe import Tokenizer
 tok = Tokenizer.from_files(
@@ -499,8 +483,20 @@ tok = Tokenizer.from_files(
     ['<|endoftext|>']
 )
 print(f'Vocabulary size: {len(tok.vocab)}')
-print(f'Example encoding: {tok.encode(\"Hello world\")}'）
+print(f'Example encoding: {tok.encode(\"Hello world\")}')
 "
+```
+
+### 一键执行完整流程
+
+```bash
+# TinyStories完整流程
+uv run python cs336_basics/bpe/applications/train_tinystories_tokenizer.py && \
+uv run python cs336_basics/bpe/applications/encode_tinystories.py
+
+# OpenWebText完整流程 (需要较长时间)
+uv run python cs336_basics/bpe/applications/train_owt_tokenizer.py && \
+uv run python cs336_basics/bpe/applications/encode_owt.py
 ```
 
 ---

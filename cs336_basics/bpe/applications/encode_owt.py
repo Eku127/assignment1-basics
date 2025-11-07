@@ -52,17 +52,18 @@ def main():
     print("Encoding OpenWebText Dataset")
     print("=" * 60)
     
-    # Check if tokenizer exists
-    vocab_path = "data/tokenizers/owt_vocab.json"
-    merges_path = "data/tokenizers/owt_merges.txt"
+    # Get paths relative to project root
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+    vocab_path = os.path.join(project_root, "data/tokenizers/owt_vocab.json")
+    merges_path = os.path.join(project_root, "data/tokenizers/owt_merges.txt")
     
     if not os.path.exists(vocab_path) or not os.path.exists(merges_path):
         print(f"\n❌ Error: Tokenizer not found!")
         print(f"   Expected files:")
-        print(f"     - {vocab_path}")
-        print(f"     - {merges_path}")
+        print(f"     - data/tokenizers/owt_vocab.json")
+        print(f"     - data/tokenizers/owt_merges.txt")
         print(f"\n   Please train the tokenizer first:")
-        print(f"     uv run python train_owt_tokenizer.py")
+        print(f"     uv run python cs336_basics/bpe/applications/train_owt_tokenizer.py")
         return
     
     # Load tokenizer
@@ -79,22 +80,23 @@ def main():
     print(f"  ✅ Loaded tokenizer (vocab_size={len(tokenizer.vocab)})")
     
     # Create output directory
-    os.makedirs("data/encoded", exist_ok=True)
+    encoded_dir = os.path.join(project_root, "data/encoded")
+    os.makedirs(encoded_dir, exist_ok=True)
     
     # Encode training set
     print(f"\n🚀 Encoding training set (this may take 1-2 hours)...")
     train_tokens = encode_file(
         tokenizer,
-        "/data/OpenWebText_train.txt",
-        "data/encoded/owt_train.npy"
+        os.path.join(project_root, "data/owt_train.txt"),
+        os.path.join(encoded_dir, "owt_train.npy")
     )
     
     # Encode validation set
     print(f"\n🚀 Encoding validation set...")
     val_tokens = encode_file(
         tokenizer,
-        "/data/OpenWebText_val.txt",
-        "data/encoded/owt_val.npy"
+        os.path.join(project_root, "data/owt_valid.txt"),
+        os.path.join(encoded_dir, "owt_valid.npy")
     )
     
     # Print summary

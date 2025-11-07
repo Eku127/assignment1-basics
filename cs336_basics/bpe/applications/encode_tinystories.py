@@ -52,17 +52,18 @@ def main():
     print("Encoding TinyStories Dataset")
     print("=" * 60)
     
-    # Check if tokenizer exists
-    vocab_path = "data/tokenizers/tinystories_vocab.json"
-    merges_path = "data/tokenizers/tinystories_merges.txt"
+    # Get paths relative to project root
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+    vocab_path = os.path.join(project_root, "data/tokenizers/tinystories_vocab.json")
+    merges_path = os.path.join(project_root, "data/tokenizers/tinystories_merges.txt")
     
     if not os.path.exists(vocab_path) or not os.path.exists(merges_path):
         print(f"\n❌ Error: Tokenizer not found!")
         print(f"   Expected files:")
-        print(f"     - {vocab_path}")
-        print(f"     - {merges_path}")
+        print(f"     - data/tokenizers/tinystories_vocab.json")
+        print(f"     - data/tokenizers/tinystories_merges.txt")
         print(f"\n   Please train the tokenizer first:")
-        print(f"     uv run python train_tinystories_tokenizer.py")
+        print(f"     uv run python cs336_basics/bpe/applications/train_tinystories_tokenizer.py")
         return
     
     # Load tokenizer
@@ -79,22 +80,23 @@ def main():
     print(f"  ✅ Loaded tokenizer (vocab_size={len(tokenizer.vocab)})")
     
     # Create output directory
-    os.makedirs("data/encoded", exist_ok=True)
+    encoded_dir = os.path.join(project_root, "data/encoded")
+    os.makedirs(encoded_dir, exist_ok=True)
     
     # Encode training set
     print(f"\n🚀 Encoding training set...")
     train_tokens = encode_file(
         tokenizer,
-        "/data/TinyStories_train.txt",
-        "data/encoded/tinystories_train.npy"
+        os.path.join(project_root, "data/TinyStoriesV2-GPT4-train.txt"),
+        os.path.join(encoded_dir, "tinystories_train.npy")
     )
     
     # Encode validation set
     print(f"\n🚀 Encoding validation set...")
     val_tokens = encode_file(
         tokenizer,
-        "/data/TinyStories_val.txt",
-        "data/encoded/tinystories_val.npy"
+        os.path.join(project_root, "data/TinyStoriesV2-GPT4-valid.txt"),
+        os.path.join(encoded_dir, "tinystories_valid.npy")
     )
     
     # Print summary
