@@ -54,6 +54,14 @@ def clip_gradients(
     # 2. Compute global L2 norm: √(Σ ∥g_p∥²)
     # 3. If norm > max_norm, scale all gradients by max_norm / (norm + eps)
     # 4. Return the original norm (before clipping)
-    
-    raise NotImplementedError("Gradient clipping not yet implemented")
 
+    # clloect gradient
+    gradients = [p.grad for p in parameters if p.grad is not None]
+    # compute global L2 norm: √(Σ ∥g_p∥²)
+    global_norm = torch.sqrt(sum(grad.norm()**2 for grad in gradients))
+    # if global norm > max norm, then  we scale all gradients by max norm / (global norm + eps)
+    if global_norm > max_norm:
+        for grad in gradients:
+            grad.data *= max_norm / (global_norm + eps)
+    # return the original global norm (before clipping)
+    return global_norm
