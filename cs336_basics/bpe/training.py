@@ -52,20 +52,46 @@ def train_bpe(
         743  # 1000 - 256 - 1 (special token)
     """
     # 1. Read text and split on special tokens
+    import time
+    print(f"📖 Reading corpus from {input_path}...")
+    start_read = time.time()
+    
     with open(input_path, "r", encoding="utf-8") as f:
         text = f.read()
     
+    read_time = time.time() - start_read
+    print(f"✅ Read {len(text):,} characters in {read_time:.1f}s ({len(text)/1e6/read_time:.1f} MB/s)")
+    
     # Remove/split on special tokens so no merges cross them
+    print(f"✂️  Splitting on special tokens: {special_tokens}...")
+    start_split = time.time()
     segments = split_on_special_tokens(text, special_tokens or [])
+    split_time = time.time() - start_split
+    print(f"✅ Split into {len(segments):,} segments in {split_time:.1f}s")
+    
+    # Free memory
+    del text
     
     # 2. Pre-tokenize segments and count frequency
+    print(f"🔤 Pre-tokenizing with GPT-2 regex (this may take a while for large corpora)...")
+    start_pretok = time.time()
     freq = pretokenize(segments)
+    pretok_time = time.time() - start_pretok
+    print(f"✅ Pre-tokenization complete in {pretok_time:.1f}s ({pretok_time/60:.1f} minutes)")
+    print(f"   Found {len(freq):,} unique byte sequences")
+    
+    # Free memory
+    del segments
     
     # 3. Initialize vocabulary: 256 bytes + special tokens
+    print(f"📚 Initializing vocabulary...")
     id_to_bytes, bytes_to_id = build_initial_vocab(special_tokens or [])
     next_id = max(id_to_bytes) + 1 if id_to_bytes else 0
+    print(f"✅ Initial vocabulary: {len(id_to_bytes)} tokens (256 bytes + {len(special_tokens or [])} special tokens)")
     
     # 4. Store corpus as list of (list[int], count)
+    print(f"🔢 Building corpus ID representation...")
+    start_corpus = time.time()
     corpus_ids: list[list[int]] = []
     corpus_counts: list[int] = []
     
@@ -73,6 +99,9 @@ def train_bpe(
         ids = [bytes_to_id[bytes([b])] for b in byte_tuple]
         corpus_ids.append(ids)
         corpus_counts.append(count)
+    
+    corpus_time = time.time() - start_corpus
+    print(f"✅ Corpus built in {corpus_time:.1f}s: {len(corpus_ids):,} unique sequences")
     
     merges: list[tuple[bytes, bytes]] = []
     initial_vocab_size = len(id_to_bytes)
@@ -89,6 +118,8 @@ def train_bpe(
         return ctr
     
     # Build per-word pair counters and global counts and reverse index
+    print(f"🔗 Building pair statistics...")
+    start_pairs = time.time()
     word_pair_counters: list[Counter[tuple[int, int]]] = []
     total_pair_counts: dict[tuple[int, int], int] = defaultdict(int)
     pair_to_words: dict[tuple[int, int], set[int]] = defaultdict(set)
@@ -101,6 +132,9 @@ def train_bpe(
         for pair, k in ctr.items():
             total_pair_counts[pair] += k * c
             pair_to_words[pair].add(i)
+    
+    pairs_time = time.time() - start_pairs
+    print(f"✅ Pair statistics built in {pairs_time:.1f}s: {len(total_pair_counts):,} unique pairs")
     
     def merge_pair(a: int, b: int, new_token: int) -> None:
         """
@@ -167,7 +201,6 @@ def train_bpe(
     
     # 5. Main merge loop
     import sys
-    import time
     
     print(f"\n🔄 Starting BPE training: {max_merges} merges needed")
     print(f"   Initial vocab size: {initial_vocab_size}")
