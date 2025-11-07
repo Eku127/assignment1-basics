@@ -19,10 +19,10 @@ This module covers **Sections 4, 5, and 6** of the assignment:
 | LR Scheduling | `lr_scheduler.py` | ✅ DONE | 1 | `test_get_lr_cosine_schedule` | `uv run pytest tests/test_optimizer.py::test_get_lr_cosine_schedule -v` |
 | Gradient Clipping | `gradient_clipping.py` | ✅ DONE | 1 | `test_gradient_clipping` | `uv run pytest tests/test_nn_utils.py::test_gradient_clipping -v` |
 | Data Loading | `data_loader.py` | ✅ DONE | 2 | `test_get_batch` | `uv run pytest tests/test_data.py::test_get_batch -v` |
-| Checkpointing | `checkpoint.py` | ⬜ TODO | 1 | `test_checkpointing` | `uv run pytest tests/test_checkpoint.py::test_checkpointing -v` |
+| Checkpointing | `checkpoint.py` | ✅ DONE | 1 | `test_checkpointing` | `uv run pytest tests/test_serialization.py::test_checkpointing -v` |
 | Training Loop | `train.py` | ⬜ TODO | 4 | - | Manual testing |
 | Text Generation | `decode.py` | ⬜ TODO | 3 | - | Manual testing |
-| **Total** | | **6/9** | **15** | | |
+| **Total** | | **7/9** | **15** | | |
 
 ---
 
