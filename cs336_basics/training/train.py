@@ -21,6 +21,13 @@ import os
 from pathlib import Path
 from typing import Optional
 
+# Optional wandb import
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
 # Import our training utilities
 from cs336_basics.training.loss import cross_entropy, perplexity
 from cs336_basics.training.optimizer import AdamW
@@ -44,8 +51,6 @@ def train(
     num_layers: int,
     num_heads: int,
     d_ff: Optional[int] = None,
-    attn_pdrop: float = 0.0,
-    residual_pdrop: float = 0.0,
     use_rope: bool = True,
     # Training parameters
     batch_size: int = 64,
@@ -62,6 +67,10 @@ def train(
     save_every: int = 5000,
     checkpoint_dir: str = './checkpoints',
     resume_from: Optional[str] = None,
+    # Wandb (optional)
+    use_wandb: bool = False,
+    wandb_project: Optional[str] = None,
+    wandb_name: Optional[str] = None,
     # Device
     device: str = 'cuda',
 ):
@@ -77,8 +86,6 @@ def train(
         num_layers: Number of transformer layers
         num_heads: Number of attention heads
         d_ff: FFN inner dimension (default: 4 * d_model)
-        attn_pdrop: Attention dropout probability
-        residual_pdrop: Residual connection dropout probability
         use_rope: Whether to use RoPE positional encoding
         batch_size: Training batch size
         max_steps: Maximum training steps
@@ -93,8 +100,51 @@ def train(
         save_every: Save checkpoint every N steps
         checkpoint_dir: Directory to save checkpoints
         resume_from: Path to checkpoint to resume from
+        use_wandb: Whether to use Weights & Biases for logging
+        wandb_project: Wandb project name (required if use_wandb=True)
+        wandb_name: Wandb run name (optional)
         device: Device to train on ('cpu', 'cuda', 'mps')
     """
+    
+    # Initialize wandb if requested
+    if use_wandb:
+        if not WANDB_AVAILABLE:
+            raise ImportError("wandb is not installed. Install it with: pip install wandb")
+        if wandb_project is None:
+            raise ValueError("wandb_project must be specified when use_wandb=True")
+        
+        wandb.init(
+            project=wandb_project,
+            name=wandb_name,
+            config={
+                # Data
+                'train_data_path': train_data_path,
+                'val_data_path': val_data_path,
+                # Model
+                'vocab_size': vocab_size,
+                'context_length': context_length,
+                'd_model': d_model,
+                'num_layers': num_layers,
+                'num_heads': num_heads,
+                'd_ff': d_ff,
+                'use_rope': use_rope,
+                # Training
+                'batch_size': batch_size,
+                'max_steps': max_steps,
+                'learning_rate': learning_rate,
+                'min_lr': min_lr,
+                'warmup_steps': warmup_steps,
+                'betas': betas,
+                'weight_decay': weight_decay,
+                'grad_clip': grad_clip,
+                # Logging
+                'log_every': log_every,
+                'val_every': val_every,
+                'save_every': save_every,
+                'device': device,
+            }
+        )
+        print(f"Wandb initialized: project={wandb_project}, name={wandb_name}")
     
     # Create checkpoint directory
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -124,14 +174,18 @@ def train(
         num_layers=num_layers,
         num_heads=num_heads,
         d_ff=d_ff,
-        attn_pdrop=attn_pdrop,
-        residual_pdrop=residual_pdrop,
+        use_rope=use_rope,
     )
     model = model.to(device)
     
     # Count parameters
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {num_params:,} ({num_params/1e6:.1f}M)")
+    
+    # Log model info to wandb
+    if use_wandb:
+        wandb.config.update({'num_params': num_params})
+        wandb.config.update({'num_params_M': num_params / 1e6})
     
     # Initialize optimizer
     print("\nInitializing optimizer...")
@@ -199,6 +253,16 @@ def train(
             print(f"Step {step:6d} | Loss: {loss.item():.4f} | "
                   f"PPL: {ppl:7.2f} | LR: {lr:.2e} | "
                   f"GradNorm: {grad_norm:.2f}")
+            
+            # Log to wandb
+            if use_wandb:
+                wandb.log({
+                    'train/loss': loss.item(),
+                    'train/perplexity': ppl,
+                    'train/learning_rate': lr,
+                    'train/grad_norm': grad_norm,
+                    'step': step,
+                }, step=step)
         
         # Validation
         if step % val_every == 0 and step > 0:
@@ -212,6 +276,14 @@ def train(
                 print(f"Validation at step {step}")
                 print(f"  Val Loss: {val_loss:.4f} | Val PPL: {val_ppl:.2f}")
                 print(f"{'='*80}\n")
+                
+                # Log validation metrics to wandb
+                if use_wandb:
+                    wandb.log({
+                        'val/loss': val_loss.item(),
+                        'val/perplexity': val_ppl,
+                        'step': step,
+                    }, step=step)
             model.train()
         
         # Checkpointing
@@ -226,6 +298,10 @@ def train(
     final_path = os.path.join(checkpoint_dir, 'checkpoint_final.pt')
     save_checkpoint(model, optimizer, max_steps, final_path)
     print(f"\nTraining complete! Final checkpoint saved to {final_path}")
+    
+    # Finish wandb run
+    if use_wandb:
+        wandb.finish()
 
 
 def evaluate(
@@ -296,6 +372,14 @@ def main():
     parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints')
     parser.add_argument('--resume_from', type=str, default=None)
     
+    # Wandb
+    parser.add_argument('--use_wandb', action='store_true',
+                       help='Use Weights & Biases for logging')
+    parser.add_argument('--wandb_project', type=str, default='LLM_Learning',
+                       help='Wandb project name (required if --use_wandb)')
+    parser.add_argument('--wandb_name', type=str, default=None,
+                       help='Wandb run name (optional)')
+    
     # Device
     parser.add_argument('--device', type=str, default='cuda')
     
@@ -323,6 +407,9 @@ def main():
         save_every=args.save_every,
         checkpoint_dir=args.checkpoint_dir,
         resume_from=args.resume_from,
+        use_wandb=args.use_wandb,
+        wandb_project=args.wandb_project,
+        wandb_name=args.wandb_name,
         device=args.device,
     )
 
