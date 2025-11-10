@@ -8,6 +8,10 @@
 
 用于在 TinyStories 数据集上训练 Transformer 语言模型的 Bash 脚本。该脚本已经配置好了符合 CS336 Assignment 1 要求的默认超参数，并会自动创建包含训练参数的 checkpoint 目录名。
 
+### `generate.sh`
+
+用于从训练好的 checkpoint 生成文本的 Bash 脚本。支持多种解码策略（temperature sampling、top-p sampling），可以方便地测试不同生成参数的效果。
+
 ---
 
 ## 🚀 快速开始
@@ -241,10 +245,134 @@ Error: Training data file not found: ./data/tinystories/train_tokens.npy
 
 ---
 
+---
+
+## 📝 文本生成脚本 (`generate.sh`)
+
+### 基本使用
+
+```bash
+# 基本生成（使用默认参数）
+bash cs336_basics/training/scripts/generate.sh \
+    --checkpoint ./checkpoints/model.pt \
+    --prompt "Once upon a time"
+
+# 使用自定义参数
+bash cs336_basics/training/scripts/generate.sh \
+    --checkpoint ./checkpoints/model.pt \
+    --prompt "The robot" \
+    --temperature 1.5 \
+    --max_new_tokens 200 \
+    --top_p 0.9
+```
+
+### 必需参数
+
+- `--checkpoint PATH`: 模型 checkpoint 文件路径（`.pt` 文件）
+
+### 可选参数
+
+#### Tokenizer 路径
+- `--vocab PATH`: 词汇表 JSON 文件路径（默认：`./data/bpe/vocab.json`）
+- `--merges PATH`: BPE merges 文件路径（默认：`./data/bpe/merges.txt`）
+
+#### 生成参数
+- `--prompt TEXT`: 输入提示文本（默认：`"Once upon a time"`）
+- `--max_new_tokens N`: 最大生成 token 数（默认：`100`）
+- `--temperature T`: 采样温度（默认：`1.0`）
+  - 较低值（0.1-0.5）：更保守、更确定性的输出
+  - 较高值（1.0-2.0）：更随机、更有创意的输出
+- `--top_p P`: Top-p (nucleus) 采样阈值（默认：`1.0`，即不使用）
+  - 范围：(0, 1]
+  - 较小的值会限制候选 token 集合
+
+#### 模型架构参数
+这些参数需要与训练时使用的参数一致：
+- `--vocab_size N`: 词汇表大小（默认：`10000`）
+- `--context_length N`: 上下文长度（默认：`256`）
+- `--d_model N`: 模型维度（默认：`512`）
+- `--num_layers N`: Transformer 层数（默认：`4`）
+- `--num_heads N`: 注意力头数（默认：`16`）
+- `--d_ff N`: Feed-forward 维度（默认：`1344`）
+- `--no_rope`: 禁用 RoPE 位置编码（默认启用）
+
+#### 其他选项
+- `--device DEVICE`: 运行设备（`cuda`, `cpu`, `mps`，默认：`cuda:0`）
+- `--seed N`: 随机种子（用于可重现性）
+- `--eos_token TOKEN`: 结束 token（默认：`<|endoftext|>`）
+- `--verbose`: 打印详细信息
+- `-h, --help`: 显示帮助信息
+
+### 使用环境变量
+
+也可以通过环境变量设置参数：
+
+```bash
+VOCAB_FILE=./data/bpe/vocab.json \
+MERGES_FILE=./data/bpe/merges.txt \
+PROMPT="The robot walked" \
+TEMPERATURE=0.8 \
+MAX_NEW_TOKENS=150 \
+bash cs336_basics/training/scripts/generate.sh \
+    --checkpoint ./checkpoints/model.pt
+```
+
+### 使用示例
+
+#### 示例 1：确定性生成（低温度）
+
+```bash
+bash cs336_basics/training/scripts/generate.sh \
+    --checkpoint ./checkpoints/model.pt \
+    --prompt "Once upon a time" \
+    --temperature 0.1 \
+    --max_new_tokens 100
+```
+
+#### 示例 2：创意生成（高温度 + top-p）
+
+```bash
+bash cs336_basics/training/scripts/generate.sh \
+    --checkpoint ./checkpoints/model.pt \
+    --prompt "In a distant galaxy" \
+    --temperature 1.5 \
+    --top_p 0.9 \
+    --max_new_tokens 200
+```
+
+#### 示例 3：批量测试不同温度
+
+```bash
+for temp in 0.1 0.5 1.0 1.5; do
+    echo "=== Temperature: $temp ==="
+    bash cs336_basics/training/scripts/generate.sh \
+        --checkpoint ./checkpoints/model.pt \
+        --prompt "The robot" \
+        --temperature $temp \
+        --max_new_tokens 50
+    echo ""
+done
+```
+
+### 注意事项
+
+1. **模型架构参数**：确保 `--vocab_size`、`--d_model`、`--num_layers` 等参数与训练时使用的参数一致，否则无法正确加载 checkpoint。
+
+2. **Tokenizer 路径**：确保 `--vocab` 和 `--merges` 文件路径正确，且与训练时使用的 tokenizer 一致。
+
+3. **Checkpoint 格式**：脚本支持两种 checkpoint 格式：
+   - 包含 `'model'` 键的字典格式
+   - 直接是模型 state_dict 的格式
+
+4. **设备选择**：如果指定 `--device cuda` 但 CUDA 不可用，脚本会自动回退到 CPU。
+
+---
+
 ## 📚 相关文档
 
 - 训练脚本主文档：`../README.md`
 - 训练函数文档：`../train.py`
+- 生成函数文档：`../generate.py`
 - 数据加载文档：`../docs/dataloader_strategy_cn.md`
 - Checkpoint 文档：`../docs/checkpointing_cn.md`
 

@@ -35,10 +35,10 @@ BATCH_SIZE="${BATCH_SIZE:-64}"
 MAX_STEPS="${MAX_STEPS:-$((327680000 / (BATCH_SIZE * CONTEXT_LENGTH)))}"
 
 
-LEARNING_RATE="${LEARNING_RATE:-3e-4}"
+LEARNING_RATE="${LEARNING_RATE:-3e-3}"
 MIN_LR="${MIN_LR:-0.00001}"
 # Warmup steps: 10% of total training steps
-WARMUP_STEPS="${WARMUP_STEPS:-$((MAX_STEPS / 10))}"
+WARMUP_STEPS="${WARMUP_STEPS:-0}"
 BETA1="${BETA1:-0.9}"
 BETA2="${BETA2:-0.999}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
@@ -50,7 +50,7 @@ GRAD_CLIP=1.0
 LOG_EVERY=100
 VAL_EVERY=1000
 SAVE_EVERY=5000
-CHECKPOINT_BASE_DIR="${CHECKPOINT_BASE_DIR:-./checkpoints/tinystories/bs_test}"
+CHECKPOINT_BASE_DIR="${CHECKPOINT_BASE_DIR:-./checkpoints/tinystories/arch_test}"
 
 # Create checkpoint directory name with key parameters
 # Format: lr{lr}_bs{bs}_layers{layers}_heads{heads}_d{dmodel}_warmup{warmup}_beta{beta1}-{beta2}_wd{weightdecay}
@@ -58,20 +58,22 @@ CHECKPOINT_BASE_DIR="${CHECKPOINT_BASE_DIR:-./checkpoints/tinystories/bs_test}"
 LR_STR=$(echo "$LEARNING_RATE" | sed 's/^0\./0p/g' | sed 's/\./p/g')
 BETA_STR="${BETA1}-${BETA2}"
 WD_STR=$(echo "$WEIGHT_DECAY" | sed 's/^0\./0p/g' | sed 's/\./p/g')
-CHECKPOINT_DIR="${CHECKPOINT_BASE_DIR}/lr${LR_STR}_bs${BATCH_SIZE}_layers${NUM_LAYERS}_heads${NUM_HEADS}_d${D_MODEL}_warmup${WARMUP_STEPS}_beta${BETA_STR}_wd${WD_STR}"
+# Create checkpoint name variable
+RUN_NAME="lr${LR_STR}_bs${BATCH_SIZE}_layers${NUM_LAYERS}_heads${NUM_HEADS}_d${D_MODEL}_warmup${WARMUP_STEPS}_post_norm"
+CHECKPOINT_DIR="${CHECKPOINT_BASE_DIR}/${RUN_NAME}"
 
 # ============================================================================
 # WANDB (OPTIONAL)
 # ============================================================================
 USE_WANDB="${USE_WANDB:-true}"
 
-WANDB_PROJECT="${WANDB_PROJECT:-CS336_TinyStories_BS_Test}"
-WANDB_NAME="${WANDB_NAME:-lr${LR_STR}_bs${BATCH_SIZE}_layers${NUM_LAYERS}_heads${NUM_HEADS}_d${D_MODEL}_warmup${WARMUP_STEPS}_beta${BETA_STR}_wd${WD_STR}}"
+WANDB_PROJECT="${WANDB_PROJECT:-CS336_TinyStories_Arch_Test}"
+WANDB_NAME="${WANDB_NAME:-${RUN_NAME}}"
 
 # ============================================================================
 # DEVICE
 # ============================================================================
-DEVICE="${DEVICE:-cuda:4}"
+DEVICE="${DEVICE:-cuda:0}"
 
 # ============================================================================
 # VALIDATION

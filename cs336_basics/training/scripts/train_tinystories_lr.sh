@@ -28,12 +28,10 @@ USE_ROPE=true
 # TRAINING HYPERPARAMETERS
 # ============================================================================
 BATCH_SIZE=64
-MAX_STEPS=20000
+MAX_STEPS="${MAX_STEPS:-$((327680000 / (BATCH_SIZE * CONTEXT_LENGTH)))}"
 
 
-# 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2
-
-LEARNING_RATE="${LEARNING_RATE:-3e-4}"  # Can be overridden
+LEARNING_RATE="${LEARNING_RATE:-3e-3}"  # Can be overridden
 MIN_LR="${MIN_LR:-0.00001}"
 # Warmup steps: 10% of total training steps
 WARMUP_STEPS="${WARMUP_STEPS:-$((MAX_STEPS / 10))}"

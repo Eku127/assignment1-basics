@@ -80,8 +80,8 @@ class TransformerBlock(nn.Module):
         
         # Initialize Position-wise Feed-Forward Network
         # Use SwiGLU or FFN_SiLU based on use_swiglu flag
-        # self.feed_forward = SwiGLU(d_model=d_model, d_ff=d_ff, device=device, dtype=dtype)
-        self.feed_forward = FFN_SiLU(d_model=d_model, d_ff=d_ff, device=device, dtype=dtype)
+        self.feed_forward = SwiGLU(d_model=d_model, d_ff=d_ff, device=device, dtype=dtype)
+        # self.feed_forward = FFN_SiLU(d_model=d_model, d_ff=d_ff, device=device, dtype=dtype)
     
     def forward(
         self, 
