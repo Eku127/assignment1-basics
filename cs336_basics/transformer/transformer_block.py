@@ -9,7 +9,7 @@ sublayer, with RMSNorm applied before each sublayer and residual connections.
 import torch
 import torch.nn as nn
 from .multihead_attention import MultiHeadSelfAttention
-from .positionwise_feedforward import SwiGLU
+from .positionwise_feedforward import SwiGLU, FFN_SiLU
 from .rmsnorm import RMSNorm
 
 
@@ -29,6 +29,7 @@ class TransformerBlock(nn.Module):
         max_seq_len: Maximum sequence length for RoPE (if used)
         theta: RoPE theta parameter (if used)
         eps: Epsilon for RMSNorm numerical stability
+        use_swiglu: Whether to use SwiGLU (True) or FFN_SiLU (False) for feed-forward
         device: Device to store parameters on
         dtype: Data type of parameters
     """
@@ -78,8 +79,9 @@ class TransformerBlock(nn.Module):
             )
         
         # Initialize Position-wise Feed-Forward Network
-        # Hint: Use SwiGLU with d_model input and d_ff hidden dimension
-        self.feed_forward = SwiGLU(d_model=d_model, d_ff=d_ff, device=device, dtype=dtype)
+        # Use SwiGLU or FFN_SiLU based on use_swiglu flag
+        # self.feed_forward = SwiGLU(d_model=d_model, d_ff=d_ff, device=device, dtype=dtype)
+        self.feed_forward = FFN_SiLU(d_model=d_model, d_ff=d_ff, device=device, dtype=dtype)
     
     def forward(
         self, 

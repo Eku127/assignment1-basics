@@ -121,3 +121,88 @@ class SwiGLU(nn.Module):
     def extra_repr(self) -> str:
         """Return extra representation string for the module."""
         return f'd_model={self.d_model}, d_ff={self.d_ff}'
+
+
+class FFN_SiLU(nn.Module):
+    """
+    Feed-Forward Network with SiLU activation (no gating).
+    
+    This implements FFN_SiLU(x) = W2 SiLU(W1 x) as described in the ablation study.
+    Unlike SwiGLU, this uses only two weight matrices (W1 and W2) instead of three.
+    
+    Args:
+        d_model: Input dimension of the model
+        d_ff: Hidden dimension of the feed-forward network (typically 4 * d_model)
+        device: Device to store the parameters on
+        dtype: Data type of the parameters
+    """
+    
+    def __init__(self, d_model: int, d_ff: int, device=None, dtype=None):
+        super().__init__()
+        
+        self.d_model = d_model
+        self.d_ff = d_ff
+        
+        # Ensure dtype is floating point for gradient computation
+        if dtype is not None and not torch.is_floating_point(torch.tensor(0, dtype=dtype)):
+            dtype = torch.float32
+        
+        # W1: (d_ff, d_model) - first linear transformation
+        self.W1 = nn.Parameter(torch.empty(d_ff, d_model, device=device, dtype=dtype or torch.float32))
+        # W2: (d_model, d_ff) - output projection
+        self.W2 = nn.Parameter(torch.empty(d_model, d_ff, device=device, dtype=dtype or torch.float32))
+        
+        # Weight initialization
+        self._init_weights(self.W1, d_model, d_ff)
+        self._init_weights(self.W2, d_ff, d_model)
+    
+    def _init_weights(self, weight_tensor, in_features, out_features):
+        """Initialize weights using truncated normal distribution."""
+        std = math.sqrt(2.0 / (in_features + out_features))
+        init.trunc_normal_(weight_tensor, mean=0.0, std=std, a=-3*std, b=3*std)
+    
+    def silu(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        SiLU (Swish) activation function.
+        
+        SiLU(x) = x * sigmoid(x)
+        
+        Args:
+            x: Input tensor
+            
+        Returns:
+            Output tensor with SiLU activation applied
+        """
+        return x * torch.sigmoid(x)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply FFN_SiLU feed-forward network.
+        
+        FFN_SiLU(x) = W2 SiLU(W1 x)
+        
+        Args:
+            x: Input tensor of shape (..., d_model)
+            
+        Returns:
+            Output tensor of shape (..., d_model)
+            
+        Implementation steps:
+        1. Apply W1 transformation: h1 = W1 x
+        2. Apply SiLU activation: silu_h1 = SiLU(h1)
+        3. Apply W2 transformation: output = W2 silu_h1
+        """
+        # Step 1: Apply W1 transformation
+        h1 = torch.einsum('...d,fd->...f', x, self.W1)
+        
+        # Step 2: Apply SiLU activation
+        silu_h1 = self.silu(h1)
+        
+        # Step 3: Apply W2 transformation
+        output = torch.einsum('...f,df->...d', silu_h1, self.W2)
+        
+        return output
+    
+    def extra_repr(self) -> str:
+        """Return extra representation string for the module."""
+        return f'd_model={self.d_model}, d_ff={self.d_ff}'
