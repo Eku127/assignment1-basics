@@ -1955,37 +1955,6 @@ practices when debugging model architectures are:
         rameter search strategy.
         Deliverable: A model with validation loss (per-token) on TinyStories of at most 1.45
 
-
-
-
-                                                   41
-           Low-Resource/Downscaling Tip: Train for few steps on CPU or Apple Silicon
-
-           If you are running on cpu or mps, you should instead reduce the total tokens processed
-           count to 40, 000, 000, which will be suﬀicient to produce reasonably fluent text. You may
-           also increase the target validation loss from 1.45 to 2.00.
-           Running our solution code with a tuned learning rate on an M3 Max chip and 36 GB of
-           RAM, we use batch size × total step count × context length = 32×5000×256 = 40, 960, 000
-           tokens, which takes 1 hour and 22 minutes on cpu and 36 minutes on mps. At step 5000,
-           we achieve a validation loss of 1.80.
-           Some additional tips:
-             • When using X training steps, we suggest adjusting the cosine learning rate decay
-               schedule to terminate its decay (i.e., reach the minimum learning rate) at precisely
-               step X.
-             • When using mps, do not use TF32 kernels, i.e., do not set
-                               torch.set_float32_matmul_precision('high')
-                as you might with cuda devices. We tried enabling TF32 kernels with mps (torch
-                version 2.6.0) and found the backend will use silently broken kernels that cause unstable
-                training.
-             • You can speed up training by JIT-compiling your model with torch.compile. Specif-
-               ically:
-                  – On cpu, compile your model with
-                                 model = torch.compile(model)
-                  – On mps, you can somewhat optimize the backward pass using
-                                 model = torch.compile(model, backend="aot_eager")
-                    Compilation with Inductor is not supported on mps as of torch version 2.6.0.
-
-
     (b) Folk wisdom is that the best learning rate is “at the edge of stability.” Investigate how the point
         at which learning rates diverge is related to your best learning rate.
         Deliverable: Learning curves of increasing learning rate which include at least one divergent

@@ -21,8 +21,17 @@ This module covers **Sections 4, 5, and 6** of the assignment:
 | Data Loading | `data_loader.py` | ✅ DONE | 2 | `test_get_batch` | `uv run pytest tests/test_data.py::test_get_batch -v` |
 | Checkpointing | `checkpoint.py` | ✅ DONE | 1 | `test_checkpointing` | `uv run pytest tests/test_serialization.py::test_checkpointing -v` |
 | Training Loop | `train.py` | ⬜ TODO | 4 | - | Manual testing |
-| Text Generation | `decode.py` | ⬜ TODO | 3 | - | Manual testing |
-| **Total** | | **7/9** | **15** | | |
+| Text Generation | `decode.py`, `generate.py` | ✅ DONE | 3 | `demo/test_generation.py` | `python cs336_basics/training/demo/test_generation.py` |
+| **Total** | | **8/9** | **15** | | |
+
+### 📝 **TODO List**
+
+- [ ] Implement KV Cache optimization for faster text generation
+- [ ] Add support for batch generation (generate multiple sequences in parallel)
+- [ ] Implement Top-k sampling strategy
+- [ ] Add beam search decoding option
+- [ ] Improve error handling and validation in training loop
+- [ ] Add more comprehensive logging and metrics tracking
 
 ---
 
@@ -714,9 +723,15 @@ for step in range(max_steps):
 
 ---
 
-### 🟡 Text Generation (`decode.py`)
+### 🟢 Text Generation (`decode.py`, `generate.py`) ✅
 
 Generate text from trained language models using various sampling strategies.
+
+**Implementation Status**: ✅ Complete
+- Core functions implemented in `decode.py`
+- Command-line script in `generate.py`
+- Test suite in `demo/test_generation.py`
+- Documentation in `docs/generation_usage_cn.md`
 
 **Core Decoding Process:**
 ```
@@ -801,6 +816,66 @@ text = generate_text(model, tokenizer, "Once upon a time",
 - **Temperature < 1**: More focused/deterministic outputs
 - **Top-p sampling**: Filters low-probability tokens before sampling
 
+**Command-Line Script:**
+```bash
+# Basic generation
+python cs336_basics/training/generate.py \
+    --checkpoint model.pt \
+    --vocab vocab.json \
+    --merges merges.txt \
+    --prompt "Once upon a time" \
+    --max_new_tokens 100 \
+    --temperature 0.8 \
+    --top_p 0.9
+
+# Greedy decoding (deterministic)
+python cs336_basics/training/generate.py \
+    --checkpoint model.pt \
+    --vocab vocab.json \
+    --merges merges.txt \
+    --prompt "Hello world" \
+    --temperature 0.01 \
+    --max_new_tokens 50 \
+    --verbose
+
+# Creative generation
+python cs336_basics/training/generate.py \
+    --checkpoint model.pt \
+    --vocab vocab.json \
+    --merges merges.txt \
+    --prompt "In the year 3000" \
+    --temperature 1.5 \
+    --top_p 0.95 \
+    --max_new_tokens 200 \
+    --seed 42
+```
+
+**Test:**
+```bash
+# Run test suite to verify implementation
+python cs336_basics/training/demo/test_generation.py
+
+# Expected output: All tests pass ✅
+# - Temperature scaling works correctly
+# - Top-p filtering works correctly
+# - Combined strategies work as expected
+# - Edge cases handled properly
+```
+
+**Recommended Parameters:**
+
+| Scenario | Temperature | Top-p | Use Case |
+|----------|------------|-------|----------|
+| Deterministic | 0.01 - 0.1 | 1.0 | Facts, code generation |
+| Conservative | 0.5 - 0.7 | 0.9 | General text |
+| Balanced | 0.7 - 0.9 | 0.9 | Stories, dialogue |
+| Creative | 1.0 - 1.5 | 0.95 | Creative writing |
+
+**See also:**
+- Full documentation: `docs/generation_usage_cn.md`
+- Theory guide: `docs/generation_cn.md`
+- Implementation: `GENERATION_README.md`
+
 ---
 
 ## 🧪 Testing
@@ -825,6 +900,9 @@ uv run pytest -k test_get_batch -v
 
 # Test checkpointing
 uv run pytest -k test_checkpointing -v
+
+# Test text generation
+python cs336_basics/training/demo/test_generation.py
 
 # Run all training-related tests
 uv run pytest tests/test_training.py -v
@@ -887,10 +965,20 @@ For a model with `P` parameters:
    - Add logging and experiment tracking
    - Test on small dataset (TinyStories)
 
-6. **Implement Text Generation**:
-   - Basic sampling from model
-   - Temperature scaling
-   - Top-p filtering
+6. **Implement Text Generation** ✅:
+   ```bash
+   # Test the implementation
+   python cs336_basics/training/demo/test_generation.py
+   
+   # Generate text from a trained model
+   python cs336_basics/training/generate.py \
+       --checkpoint model.pt \
+       --vocab vocab.json \
+       --merges merges.txt \
+       --prompt "Once upon a time" \
+       --temperature 0.8 \
+       --top_p 0.9
+   ```
 
 ---
 

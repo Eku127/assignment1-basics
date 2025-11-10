@@ -92,7 +92,7 @@ class MultiHeadSelfAttention(nn.Module):
         # Hint: Upper triangular part should be False (cannot attend to future)
         # Hint: Return boolean tensor of shape (seq_len, seq_len)
 
-        mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
+        mask = torch.triu(torch.ones(seq_len, seq_len, device=device), diagonal=1).bool()
 
         return ~mask
         

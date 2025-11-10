@@ -81,11 +81,13 @@ def get_batch(
     # extract sequences: inputs[i] = data[start:start+context_length]
     inputs = np.array([data[i:i+context_length] for i in start_positions])
     # convert to PyTorch tensors and move to device
-    inputs = torch.from_numpy(inputs).to(device) # (batch_size, context_length)
+    # Use dtype=torch.long for token indices (required for embedding lookup)
+    inputs = torch.from_numpy(inputs).long().to(device) # (batch_size, context_length)
 
     # extract targets: targets[i] = data[start+1:start+context_length+1]
     targets = np.array([data[i+1:i+context_length+1] for i in start_positions]) # (batch_size, context_length)
     # convert to PyTorch tensors and move to device
-    targets = torch.from_numpy(targets).to(device) # (batch_size, context_length)
+    # Use dtype=torch.long for token indices (required for embedding lookup)
+    targets = torch.from_numpy(targets).long().to(device) # (batch_size, context_length)
 
     return inputs, targets

@@ -362,6 +362,8 @@ def main():
     parser.add_argument('--learning_rate', type=float, default=3e-4)
     parser.add_argument('--min_lr', type=float, default=3e-5)
     parser.add_argument('--warmup_steps', type=int, default=5000)
+    parser.add_argument('--beta1', type=float, default=0.9, help='AdamW β1 parameter')
+    parser.add_argument('--beta2', type=float, default=0.95, help='AdamW β2 parameter')
     parser.add_argument('--weight_decay', type=float, default=0.1)
     parser.add_argument('--grad_clip', type=float, default=1.0)
     
@@ -400,6 +402,7 @@ def main():
         learning_rate=args.learning_rate,
         min_lr=args.min_lr,
         warmup_steps=args.warmup_steps,
+        betas=(args.beta1, args.beta2),
         weight_decay=args.weight_decay,
         grad_clip=args.grad_clip,
         log_every=args.log_every,

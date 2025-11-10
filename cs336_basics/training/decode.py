@@ -74,19 +74,63 @@ def generate_text(
         ...     temperature=1.5, max_tokens=100
         ... )
     """
-    # TODO: Implement text generation
-    # Hints:
-    # 1. Encode prompt to token IDs
-    # 2. Loop for max_tokens iterations:
-    #    a. Get logits from model (last position)
-    #    b. Apply temperature scaling
-    #    c. Apply top-p filtering
-    #    d. Sample next token
-    #    e. Check for EOS token
-    #    f. Append to sequence
-    # 3. Decode token IDs to text
+    model.eval()
     
-    raise NotImplementedError("Text generation not yet implemented")
+    # Determine EOS token ID
+    if eos_token_id is None:
+        # Try to get from tokenizer
+        if hasattr(tokenizer, 'eos_token_id'):
+            eos_token_id = tokenizer.eos_token_id
+        else:
+            # Try to encode <|endoftext|> token
+            try:
+                eos_tokens = tokenizer.encode("<|endoftext|>")
+                if len(eos_tokens) > 0:
+                    eos_token_id = eos_tokens[0]
+            except:
+                eos_token_id = None
+    
+    # 1. Encode prompt to token IDs
+    input_ids = tokenizer.encode(prompt)
+    input_ids = torch.tensor(input_ids, dtype=torch.long, device=device).unsqueeze(0)  # (1, seq_len)
+    
+    # 2. Autoregressive generation loop
+    with torch.no_grad():
+        for _ in range(max_tokens):
+            # a. Get logits from model (only use the last position)
+            # Handle context length limitation
+            if input_ids.size(1) > model.context_length:
+                # Truncate to fit context length
+                model_input = input_ids[:, -model.context_length:]
+            else:
+                model_input = input_ids
+            
+            logits = model(model_input)  # (batch_size, seq_len, vocab_size)
+            next_token_logits = logits[:, -1, :]  # (batch_size, vocab_size)
+            
+            # b. Apply temperature scaling
+            next_token_logits = apply_temperature(next_token_logits, temperature)
+            
+            # c. Apply top-p filtering
+            if top_p < 1.0:
+                next_token_logits = top_p_filtering(next_token_logits, top_p)
+            
+            # d. Sample next token
+            probs = F.softmax(next_token_logits, dim=-1)  # (batch_size, vocab_size)
+            next_token = torch.multinomial(probs, num_samples=1)  # (batch_size, 1)
+            
+            # e. Check for EOS token
+            if eos_token_id is not None and next_token.item() == eos_token_id:
+                break
+            
+            # f. Append to sequence
+            input_ids = torch.cat([input_ids, next_token], dim=1)
+    
+    # 3. Decode token IDs to text
+    generated_ids = input_ids[0].tolist()
+    generated_text = tokenizer.decode(generated_ids)
+    
+    return generated_text
 
 
 def apply_temperature(logits: torch.Tensor, temperature: float) -> torch.Tensor:
@@ -111,6 +155,9 @@ def apply_temperature(logits: torch.Tensor, temperature: float) -> torch.Tensor:
         >>> scaled_logits = apply_temperature(logits, temperature=0.8)
         >>> probs = F.softmax(scaled_logits, dim=-1)
     """
+    # Handle edge case: very small temperature (greedy decoding)
+    if temperature < 1e-8:
+        temperature = 1e-8
     return logits / temperature
 
 
@@ -151,12 +198,39 @@ def top_p_filtering(
     Reference:
         Holtzman et al. (2020). "The Curious Case of Neural Text Degeneration"
     """
-    # TODO: Implement top-p filtering
-    # Hints:
-    # 1. Sort logits by probability (descending)
-    # 2. Compute cumulative probabilities
-    # 3. Find tokens to keep (cumsum < top_p)
-    # 4. Mask out filtered tokens
+    # No filtering needed if top_p is 1.0
+    if top_p >= 1.0:
+        return logits
     
-    raise NotImplementedError("Top-p filtering not yet implemented")
+    # 1. Compute probabilities via softmax
+    probs = F.softmax(logits, dim=-1)
+    
+    # 2. Sort probabilities in descending order
+    sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
+    
+    # 3. Compute cumulative probabilities
+    cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+    
+    # 4. Find tokens to remove (cumulative probability > top_p)
+    # We want to keep tokens until cumsum >= top_p
+    # But we need to include the token that pushes us over the threshold
+    # So we mask tokens where cumsum > top_p AND it's not the first token to exceed
+    sorted_indices_to_remove = cumulative_probs > top_p
+    
+    # Keep at least the first token (highest probability)
+    # Shift the mask to the right to keep the first token that exceeds threshold
+    sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+    sorted_indices_to_remove[..., 0] = False
+    
+    # 5. Create a mask in the original (unsorted) order
+    # Scatter the removal mask back to original indices
+    indices_to_remove = sorted_indices_to_remove.scatter(
+        dim=-1, index=sorted_indices, src=sorted_indices_to_remove
+    )
+    
+    # 6. Apply the mask
+    filtered_logits = logits.clone()
+    filtered_logits[indices_to_remove] = filter_value
+    
+    return filtered_logits
 
