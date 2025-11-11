@@ -86,17 +86,23 @@ class TransformerBlock(nn.Module):
     def forward(
         self, 
         x: torch.Tensor, 
-        token_positions: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        token_positions: torch.Tensor | None = None,
+        past_key_values: tuple[torch.Tensor, torch.Tensor] | None = None,
+        use_cache: bool = True
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor] | None]:
         """
-        Apply Transformer block forward pass.
+        Apply Transformer block forward pass with optional KV cache support.
         
         Args:
             x: Input tensor of shape (..., seq_len, d_model)
             token_positions: Optional position indices for RoPE
+            past_key_values: Optional tuple of (past_K, past_V) cache tensors for this layer
+            use_cache: Whether to return updated cache (default: True)
             
         Returns:
-            Output tensor of shape (..., seq_len, d_model)
+            Tuple of:
+            - output: Output tensor of shape (..., seq_len, d_model)
+            - new_past_key_values: Updated cache tuple (K, V) or None
         """
         # Implement the pre-norm Transformer block forward pass
         # 
@@ -104,22 +110,26 @@ class TransformerBlock(nn.Module):
         # 1. First sublayer: y = x + MultiHeadSelfAttention(RMSNorm(x))
         # 2. Second sublayer: z = y + FFN(RMSNorm(y))
         
-        # Hint: Step 1 - Attention sublayer
-        # Hint: Apply norm1, then attention, then add residual connection
-
+        # Step 1 - Attention sublayer
+        # Apply norm1, then attention with cache, then add residual connection
         residual1 = x
         normed1 = self.norm1(x)
-        attention_out = self.attention(normed1, token_positions)
+        attention_out, new_past_key_values = self.attention(
+            normed1, 
+            token_positions=token_positions,
+            past_key_values=past_key_values,
+            use_cache=use_cache
+        )
         y = residual1 + attention_out
         
-        # Hint: Step 2 - Feed-forward sublayer  
-        # Hint: Apply norm2, then feed_forward, then add residual connection
-
+        # Step 2 - Feed-forward sublayer  
+        # Apply norm2, then feed_forward, then add residual connection
+        # Note: FFN does not use cache, so no cache handling needed here
         normed2 = self.norm2(y)
         ff_out = self.feed_forward(normed2)
         z = y + ff_out
 
-        return z
+        return z, new_past_key_values
     
     def extra_repr(self) -> str:
         """Return extra representation string for the module."""

@@ -168,50 +168,85 @@ class MultiHeadSelfAttention(nn.Module):
     def forward(
         self, 
         x: torch.Tensor, 
-        token_positions: torch.Tensor | None = None
-    ) -> torch.Tensor:
+        token_positions: torch.Tensor | None = None,
+        past_key_values: tuple[torch.Tensor, torch.Tensor] | None = None,
+        use_cache: bool = True
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor] | None]:
         """
-        Apply multi-head self-attention.
+        Apply multi-head self-attention with optional KV cache support.
         
         Args:
             x: Input tensor of shape (..., seq_len, d_model)
             token_positions: Optional position indices for RoPE
+            past_key_values: Optional tuple of (past_K, past_V) cache tensors
+                Each tensor has shape (..., num_heads, past_seq_len, d_k or d_v)
+            use_cache: Whether to return updated cache (default: True)
             
         Returns:
-            Output tensor of shape (..., seq_len, d_model)
+            Tuple of:
+            - output: Output tensor of shape (..., seq_len, d_model)
+            - new_past_key_values: Updated cache tuple (K, V) or None
+                Each tensor has shape (..., num_heads, total_seq_len, d_k or d_v)
         """
-        # Implement multi-head self-attention forward pass
-        # Hint: Step 1: Project input to Q, K, V using _project_qkv()
+        # Step 1: Project input to Q, K, V
         # x: (..., seq_len, d_model) --> Q, K, V: (..., seq_len, d_model)
         Q, K, V = self._project_qkv(x)
 
-        # Hint: Step 2: Reshape for multi-head attention using _reshape_for_heads()
+        # Step 2: Reshape for multi-head attention
         # Q, K, V: (..., seq_len, d_model) --> Q, K, V: (..., num_heads, seq_len, d_k or d_v)
         Q = self._reshape_for_heads(Q)
         K = self._reshape_for_heads(K)
         V = self._reshape_for_heads(V)
 
-        # Hint: Step 3: Apply RoPE if enabled (only to Q and K, not V)
+        # Step 3: Apply RoPE to new tokens (before concatenating with cache)
+        # Note: If using cache, past_K and past_V already have RoPE applied
         if self.use_rope and token_positions is not None:
             Q = self.rope(Q, token_positions)
             K = self.rope(K, token_positions)
 
-        # Hint: Step 4: Create causal mask using _create_causal_mask()
-        causal_mask = self._create_causal_mask(x.shape[-2], x.device)
+        # Step 4: Handle KV cache (after RoPE for new tokens)
+        new_seq_len = Q.shape[-2]  # Length of new tokens (before concatenation)
+        if past_key_values is not None:
+            # Incremental generation: concatenate with cached K, V
+            # Cache already has RoPE applied, so we just concatenate
+            past_K, past_V = past_key_values
+            # Concatenate on sequence dimension (dim=-2)
+            K = torch.cat([past_K, K], dim=-2)  # (..., num_heads, past_len + new_len, d_k)
+            V = torch.cat([past_V, V], dim=-2)  # (..., num_heads, past_len + new_len, d_v)
 
-        # Hint: Step 5: Apply scaled dot-product attention using scaled_dot_product_attention()
+        # Step 5: Create causal mask
+        # Total sequence length = cached length + new length
+        total_seq_len = K.shape[-2]  # Total sequence length after concatenation
+        
+        # For KV cache: mask shape should be (new_seq_len, total_seq_len)
+        # New tokens can attend to all previous tokens (including cached ones)
+        if past_key_values is not None:
+            # Create mask for incremental generation: (new_seq_len, total_seq_len)
+            # All positions are True (can attend) since new tokens can see all previous tokens
+            causal_mask = torch.ones(new_seq_len, total_seq_len, dtype=torch.bool, device=x.device)
+        else:
+            # Standard training: mask shape is (seq_len, seq_len)
+            causal_mask = self._create_causal_mask(total_seq_len, x.device)
 
-        # Q, K, V: (..., num_heads, seq_len, d_k or d_v) --> Att: (..., num_heads, seq_len, d_v)
+        # Step 6: Apply scaled dot-product attention
+        # Q: (..., num_heads, new_seq_len, d_k)
+        # K, V: (..., num_heads, total_seq_len, d_k/d_v)
+        # Output: (..., num_heads, new_seq_len, d_v)
         attention_output = scaled_dot_product_attention(Q, K, V, causal_mask)
 
-        # Hint: Step 6: Combine heads using _combine_heads()
-        # Att: (..., num_heads, seq_len, d_v) --> Att: (..., seq_len, d_model)
+        # Step 7: Combine heads
+        # Att: (..., num_heads, new_seq_len, d_v) --> Att: (..., new_seq_len, d_model)
         attention_output = self._combine_heads(attention_output)
 
-        # Step 7: Apply output projection using Linear layer
+        # Step 8: Apply output projection
         output = self.o_proj(attention_output)
 
-        return output
+        # Step 9: Return updated cache
+        new_past_key_values = None
+        if use_cache:
+            new_past_key_values = (K, V)
+
+        return output, new_past_key_values
     
     def extra_repr(self) -> str:
         """Return extra representation string for the module."""

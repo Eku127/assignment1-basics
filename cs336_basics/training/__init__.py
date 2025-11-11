@@ -18,7 +18,7 @@ from cs336_basics.training.lr_scheduler import get_lr_cosine_schedule
 from cs336_basics.training.gradient_clipping import clip_gradients
 from cs336_basics.training.data_loader import get_batch
 from cs336_basics.training.checkpoint import save_checkpoint, load_checkpoint
-from cs336_basics.training.decode import generate_text
+from cs336_basics.training.decode import generate_text, generate_text_no_cache, generate_text_v2
 
 __all__ = [
     # Loss
@@ -37,5 +37,7 @@ __all__ = [
     "load_checkpoint",
     # Text generation
     "generate_text",
+    "generate_text_no_cache",
+    "generate_text_v2",
 ]
 

@@ -18,6 +18,7 @@ Usage:
 import argparse
 import torch
 import sys
+import time
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -25,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from cs336_basics.transformer import TransformerLM
 from cs336_basics.bpe import Tokenizer
-from cs336_basics.training import generate_text
+from cs336_basics.training import generate_text, generate_text_v2, generate_text_no_cache
 
 
 def parse_args():
@@ -298,6 +299,14 @@ def main():
     
     # Generate text
     try:
+        # Here you can try different generation functions
+        # generate_text: self-implemented generation function
+        # generate_text_v2: uses model.generate() method
+        # generate_text_no_cache: uses model.generate() method without cache
+        
+        # Record start time
+        start_time = time.time()
+        
         generated_text = generate_text(
             model=model,
             tokenizer=tokenizer,
@@ -309,8 +318,14 @@ def main():
             eos_token_id=getattr(tokenizer, 'eos_token_id', None),
         )
         
+        # Calculate elapsed time
+        elapsed_time = time.time() - start_time
+        
         print(generated_text)
         print("=" * 80)
+        
+        # Print timing information
+        print(f"Generation time: {elapsed_time:.2f} seconds ({elapsed_time:.4f} s)")
         
         # Print statistics
         if args.verbose:
@@ -321,6 +336,9 @@ def main():
             print(f"Prompt tokens: {prompt_tokens}")
             print(f"Generated tokens: {new_tokens}")
             print(f"Total tokens: {generated_tokens}")
+            if new_tokens > 0:
+                tokens_per_second = new_tokens / elapsed_time
+                print(f"Generation speed: {tokens_per_second:.2f} tokens/second")
         
     except Exception as e:
         print(f"Error during generation: {e}", file=sys.stderr)

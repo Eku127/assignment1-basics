@@ -94,40 +94,257 @@ def generate_text(
     input_ids = tokenizer.encode(prompt)
     input_ids = torch.tensor(input_ids, dtype=torch.long, device=device).unsqueeze(0)  # (1, seq_len)
     
-    # 2. Autoregressive generation loop
+    # 2. Autoregressive generation loop with KV cache
+    past_key_values = None  # Initialize KV cache
     with torch.no_grad():
-        for _ in range(max_tokens):
-            # a. Get logits from model (only use the last position)
-            # Handle context length limitation
-            if input_ids.size(1) > model.context_length:
-                # Truncate to fit context length
-                model_input = input_ids[:, -model.context_length:]
+        for step in range(max_tokens):
+            # a. Prepare input: for first step, use full prompt; for subsequent steps, use only new token
+            if step == 0:
+                # First step: process the entire prompt
+                # Handle context length limitation
+                if input_ids.size(1) > model.context_length:
+                    # Truncate to fit context length
+                    model_input = input_ids[:, -model.context_length:]
+                else:
+                    model_input = input_ids
             else:
-                model_input = input_ids
+                # Subsequent steps: only the newly generated token
+                model_input = input_ids[:, -1:]  # (batch_size, 1)
             
-            logits = model(model_input)  # (batch_size, seq_len, vocab_size)
+            # b. Forward pass with KV cache
+            logits, past_key_values = model(
+                model_input,
+                past_key_values=past_key_values,
+                use_cache=True
+            )  # (batch_size, seq_len, vocab_size)
             next_token_logits = logits[:, -1, :]  # (batch_size, vocab_size)
             
-            # b. Apply temperature scaling
+            # c. Apply temperature scaling
             next_token_logits = apply_temperature(next_token_logits, temperature)
             
-            # c. Apply top-p filtering
+            # d. Apply top-p filtering
             if top_p < 1.0:
                 next_token_logits = top_p_filtering(next_token_logits, top_p)
             
-            # d. Sample next token
+            # e. Sample next token
             probs = F.softmax(next_token_logits, dim=-1)  # (batch_size, vocab_size)
             next_token = torch.multinomial(probs, num_samples=1)  # (batch_size, 1)
             
-            # e. Check for EOS token
+            # f. Check for EOS token
             if eos_token_id is not None and next_token.item() == eos_token_id:
                 break
             
-            # f. Append to sequence
+            # g. Append to sequence
             input_ids = torch.cat([input_ids, next_token], dim=1)
     
     # 3. Decode token IDs to text
     generated_ids = input_ids[0].tolist()
+    generated_text = tokenizer.decode(generated_ids)
+    
+    return generated_text
+
+
+def generate_text_no_cache(
+    model: torch.nn.Module,
+    tokenizer,
+    prompt: str,
+    max_tokens: int = 100,
+    temperature: float = 1.0,
+    top_p: float = 1.0,
+    device: str = 'cpu',
+    eos_token_id: Optional[int] = None,
+) -> str:
+    """
+    Generate text from a trained language model WITHOUT using KV cache.
+    
+    This version processes the entire sequence at each step, which is simpler
+    but less efficient than the KV cache version. Useful for debugging or
+    when you want to ensure identical behavior to training.
+    
+    Performs autoregressive generation:
+    1. Encode prompt to token IDs
+    2. For each step:
+       - Run model on entire sequence so far (no cache)
+       - Apply temperature scaling
+       - Apply top-p filtering (optional)
+       - Sample next token
+       - Append to sequence
+    3. Stop when EOS token or max_tokens reached
+    4. Decode token IDs back to text
+    
+    Args:
+        model: Trained TransformerLM
+        tokenizer: Tokenizer for encoding/decoding text
+        prompt: Input text to continue from
+        max_tokens: Maximum number of tokens to generate (default: 100)
+        temperature: Sampling temperature (default: 1.0)
+            - temperature → 0: Greedy (most likely tokens)
+            - temperature = 1.0: Standard sampling
+            - temperature > 1.0: More random/diverse
+        top_p: Nucleus sampling threshold (default: 1.0, no filtering)
+            - top_p = 1.0: Use full vocabulary
+            - top_p = 0.9: Use top 90% probability mass
+        device: Device to run on ('cpu', 'cuda', 'mps')
+        eos_token_id: End-of-sequence token ID to stop generation
+                      If None, uses tokenizer.eos_token_id
+    
+    Returns:
+        text: Generated text string (includes prompt)
+    
+    Examples:
+        >>> # Greedy decoding (deterministic)
+        >>> text = generate_text_no_cache(
+        ...     model, tokenizer, "Once upon a time",
+        ...     temperature=0.0, max_tokens=100
+        ... )
+        >>> 
+        >>> # Diverse sampling
+        >>> text = generate_text_no_cache(
+        ...     model, tokenizer, "Once upon a time",
+        ...     temperature=0.8, top_p=0.9, max_tokens=100
+        ... )
+    """
+    model.eval()
+    
+    # Determine EOS token ID
+    if eos_token_id is None:
+        # Try to get from tokenizer
+        if hasattr(tokenizer, 'eos_token_id'):
+            eos_token_id = tokenizer.eos_token_id
+        else:
+            # Try to encode <|endoftext|> token
+            try:
+                eos_tokens = tokenizer.encode("<|endoftext|>")
+                if len(eos_tokens) > 0:
+                    eos_token_id = eos_tokens[0]
+            except:
+                eos_token_id = None
+    
+    # 1. Encode prompt to token IDs
+    input_ids = tokenizer.encode(prompt)
+    input_ids = torch.tensor(input_ids, dtype=torch.long, device=device).unsqueeze(0)  # (1, seq_len)
+    
+    # 2. Autoregressive generation loop WITHOUT KV cache
+    with torch.no_grad():
+        for step in range(max_tokens):
+            # Handle context length limitation
+            if input_ids.size(1) > model.context_length:
+                # Truncate to fit context length (sliding window)
+                model_input = input_ids[:, -model.context_length:]
+            else:
+                model_input = input_ids
+            
+            # Forward pass WITHOUT KV cache (use_cache=False)
+            logits = model(
+                model_input,
+                past_key_values=None,
+                use_cache=False
+            )  # (batch_size, seq_len, vocab_size)
+            
+            # Get logits for the last token (next token prediction)
+            next_token_logits = logits[:, -1, :]  # (batch_size, vocab_size)
+            
+            # Apply temperature scaling
+            next_token_logits = apply_temperature(next_token_logits, temperature)
+            
+            # Apply top-p filtering
+            if top_p < 1.0:
+                next_token_logits = top_p_filtering(next_token_logits, top_p)
+            
+            # Sample next token
+            probs = F.softmax(next_token_logits, dim=-1)  # (batch_size, vocab_size)
+            next_token = torch.multinomial(probs, num_samples=1)  # (batch_size, 1)
+            
+            # Check for EOS token
+            if eos_token_id is not None and next_token.item() == eos_token_id:
+                break
+            
+            # Append to sequence
+            input_ids = torch.cat([input_ids, next_token], dim=1)
+    
+    # 3. Decode token IDs to text
+    generated_ids = input_ids[0].tolist()
+    generated_text = tokenizer.decode(generated_ids)
+    
+    return generated_text
+
+
+def generate_text_v2(
+    model: torch.nn.Module,
+    tokenizer,
+    prompt: str,
+    max_tokens: int = 100,
+    temperature: float = 1.0,
+    top_p: float = 1.0,
+    device: str = 'cpu',
+    eos_token_id: Optional[int] = None,
+) -> str:
+    """
+    Generate text from a trained language model using the model's built-in generate method.
+    
+    This is an alternative implementation that uses model.generate() instead of
+    manually implementing the generation loop. It provides the same interface
+    as generate_text() but delegates the generation logic to the model.
+    
+    Args:
+        model: Trained TransformerLM (must have a generate() method)
+        tokenizer: Tokenizer for encoding/decoding text
+        prompt: Input text to continue from
+        max_tokens: Maximum number of tokens to generate (default: 100)
+        temperature: Sampling temperature (default: 1.0)
+        top_p: Nucleus sampling threshold (default: 1.0, no filtering)
+        device: Device to run on ('cpu', 'cuda', 'mps')
+        eos_token_id: End-of-sequence token ID to stop generation
+                      If None, uses tokenizer.eos_token_id
+    
+    Returns:
+        text: Generated text string (includes prompt)
+    
+    Examples:
+        >>> # Greedy decoding
+        >>> text = generate_text_v2(
+        ...     model, tokenizer, "Once upon a time",
+        ...     temperature=0.01, max_tokens=100
+        ... )
+        >>> 
+        >>> # Diverse sampling
+        >>> text = generate_text_v2(
+        ...     model, tokenizer, "Once upon a time",
+        ...     temperature=0.8, top_p=0.9, max_tokens=100
+        ... )
+    """
+    model.eval()
+    
+    # Determine EOS token ID
+    if eos_token_id is None:
+        # Try to get from tokenizer
+        if hasattr(tokenizer, 'eos_token_id'):
+            eos_token_id = tokenizer.eos_token_id
+        else:
+            # Try to encode <|endoftext|> token
+            try:
+                eos_tokens = tokenizer.encode("<|endoftext|>")
+                if len(eos_tokens) > 0:
+                    eos_token_id = eos_tokens[0]
+            except:
+                eos_token_id = None
+    
+    # 1. Encode prompt to token IDs
+    prompt_ids = tokenizer.encode(prompt)
+    prompt_tokens = torch.tensor(prompt_ids, dtype=torch.long, device=device).unsqueeze(0)  # (1, prompt_len)
+    
+    # 2. Call model's generate method
+    with torch.no_grad():
+        generated_tokens = model.generate(
+            prompt_tokens=prompt_tokens,
+            max_new_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p if top_p < 1.0 else None,
+            eos_token_id=eos_token_id
+        )  # (batch_size, prompt_len + num_generated)
+    
+    # 3. Decode token IDs to text
+    generated_ids = generated_tokens[0].tolist()
     generated_text = tokenizer.decode(generated_ids)
     
     return generated_text

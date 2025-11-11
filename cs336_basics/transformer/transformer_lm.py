@@ -8,6 +8,7 @@ to create a full language model.
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from .embedding import Embedding
 from .transformer_block import TransformerBlock
 from .rmsnorm import RMSNorm
@@ -103,53 +104,90 @@ class TransformerLM(nn.Module):
         # Hint: This projects hidden states to vocabulary logits
         self.lm_head = Linear(d_model, vocab_size, device=device, dtype=dtype)
     
-    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, 
+        token_ids: torch.Tensor,
+        past_key_values: list[tuple[torch.Tensor, torch.Tensor] | None] | None = None,
+        use_cache: bool = False
+    ) -> torch.Tensor | tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor] | None] | None]:
         """
-        Apply Transformer LM forward pass.
+        Apply Transformer LM forward pass with optional KV cache support.
         
         Args:
             token_ids: Input token IDs of shape (batch_size, seq_len)
+            past_key_values: Optional list of cache tuples, one per layer
+                Each tuple contains (past_K, past_V) for that layer
+            use_cache: Whether to return updated cache (default: False for training compatibility)
             
         Returns:
-            Logits tensor of shape (batch_size, seq_len, vocab_size)
+            If use_cache=False: Logits tensor of shape (batch_size, seq_len, vocab_size)
+            If use_cache=True: Tuple of (logits, new_past_key_values)
+            
+        Note:
+            Token positions for RoPE are automatically inferred from KV cache if available,
+            otherwise start from 0. This ensures correct absolute position encoding during
+            incremental generation with KV cache.
         """
-        # TODO: Implement the full Transformer LM forward pass
-        #
-        # Steps:
-        # 1. Token embedding: token_ids -> embeddings
-        # 2. Pass through all Transformer blocks
-        # 3. Apply final normalization
-        # 4. Apply output projection to get logits
-        
-        # Hint: Step 1 - Token embedding
-        # Hint: Use self.token_embedding to convert token_ids to embeddings
-
+        # Step 1 - Token embedding
         # (B, S) --> (B, S, d_model)
         embedding = self.token_embedding(token_ids)
 
-        
-        # Hint: Step 2 - Pass through Transformer blocks
-        # Hint: For RoPE, create token_positions as torch.arange(seq_len)
-        # Hint: Loop through self.transformer_blocks or use a for loop
+        # Step 2 - Pass through Transformer blocks
+        # For RoPE, automatically infer token_positions from KV cache or start from 0
         if self.use_rope:
             seq_len = token_ids.shape[-1]
-            token_positions = torch.arange(seq_len, device=token_ids.device)
+            # Try to infer position from KV cache if available
+            if past_key_values is not None:
+                # Find first non-None cache to get past_seq_len
+                # all layer is the same so we only find one is enough
+                for layer_cache in past_key_values:
+                    if layer_cache is not None:
+                        past_K, _ = layer_cache
+                        # past_K shape: (..., num_heads, past_seq_len, d_k)
+                        past_seq_len = past_K.shape[-2]
+                        # Current token positions start from past_seq_len
+                        token_positions = torch.arange(
+                            past_seq_len, past_seq_len + seq_len, 
+                            device=token_ids.device
+                        )
+                        break
+                else:
+                    # No cache found, start from 0 (first generation step)
+                    token_positions = torch.arange(seq_len, device=token_ids.device)
+            else:
+                # No cache provided, start from 0 (training or first generation)
+                token_positions = torch.arange(seq_len, device=token_ids.device)
         else:
             token_positions = None
-        for i in range(self.num_layers):
-            embedding = self.transformer_blocks[i](embedding, token_positions)
-
         
-        # Hint: Step 3 - Final normalization
-        # Hint: Apply self.final_norm to the output of the last block
+        # Initialize cache list if needed
+        if past_key_values is None:
+            past_key_values = [None] * self.num_layers
+        
+        # Pass through each block with cache
+        new_past_key_values = []
+        for i in range(self.num_layers):
+            layer_cache = past_key_values[i] if past_key_values else None
+            embedding, new_cache = self.transformer_blocks[i](
+                embedding, 
+                token_positions=token_positions,
+                past_key_values=layer_cache,
+                use_cache=use_cache
+            )
+            if use_cache:
+                new_past_key_values.append(new_cache)
 
+        # Step 3 - Final normalization
         normalized = self.final_norm(embedding)
-        # Hint: Step 4 - Output projection
-        # Hint: Apply self.lm_head to get logits over vocabulary
 
+        # Step 4 - Output projection
         logits = self.lm_head(normalized)
 
-        return logits
+        # Return based on use_cache flag
+        if use_cache:
+            return logits, new_past_key_values
+        else:
+            return logits
     
     def generate(
         self,
@@ -185,30 +223,45 @@ class TransformerLM(nn.Module):
             # generated_tokens: (batch_size, prompt_len + max_new_tokens)
             generated_tokens = prompt_tokens.clone()
             
+            # 初始化 KV cache
+            past_key_values = None
+            
             # 自回归生成循环：逐个生成新token
             for step in range(max_new_tokens):
-                # 检查序列长度是否超过上下文窗口
-                current_len = generated_tokens.shape[1]
-                if current_len >= self.context_length:
-                    # 如果超过上下文长度，只保留最后context_length个token
-                    input_tokens = generated_tokens[:, -self.context_length:]
+                # 准备输入：第一步处理整个 prompt，后续步骤只处理新 token
+                if step == 0:
+                    # 第一步：处理整个 prompt
+                    # 检查序列长度是否超过上下文窗口
+                    if generated_tokens.shape[1] > self.context_length:
+                        # 如果超过上下文长度，只保留最后context_length个token
+                        input_tokens = generated_tokens[:, -self.context_length:]
+                    else:
+                        input_tokens = generated_tokens
                 else:
-                    input_tokens = generated_tokens
+                    # 后续步骤：只处理新生成的 token
+                    input_tokens = generated_tokens[:, -1:]  # (batch_size, 1)
                 
-                # Step 1: 前向传播获取下一个token的logits
+                # Step 1: 前向传播获取下一个token的logits（使用 KV cache）
                 # logits: (batch_size, seq_len, vocab_size)
-                logits = self.forward(input_tokens)
+                logits, past_key_values = self.forward(
+                    input_tokens,
+                    past_key_values=past_key_values,
+                    use_cache=True
+                )
                 
                 # Step 2: 只关注最后一个位置的logits（下一个token的预测）
                 # next_token_logits: (batch_size, vocab_size)
                 next_token_logits = logits[:, -1, :]
                 
-                # Step 3: 应用温度缩放控制生成的随机性
+                # Step 3: 应用温度缩放控制生成的随机性（与 generate_text 保持一致）
                 # 温度越高，分布越平滑（更随机）；温度越低，分布越尖锐（更确定）
+                # Handle edge case: very small temperature (greedy decoding)
+                if temperature < 1e-8:
+                    temperature = 1e-8
                 if temperature != 1.0:
                     next_token_logits = next_token_logits / temperature
                 
-                # Step 4: 应用top-p（nucleus）采样
+                # Step 4: 应用top-p（nucleus）采样（与 generate_text 保持一致）
                 if top_p is not None and 0.0 < top_p < 1.0:
                     next_token_logits = self._apply_top_p_filtering(next_token_logits, top_p)
                 
@@ -216,20 +269,20 @@ class TransformerLM(nn.Module):
                 probs = torch.softmax(next_token_logits, dim=-1)
                 next_token = torch.multinomial(probs, num_samples=1)  # (batch_size, 1)
                 
-                # Step 6: 将新生成的token追加到序列中
-                generated_tokens = torch.cat([generated_tokens, next_token], dim=1)
-                
-                # Step 7: 检查是否生成了结束token
+                # Step 6: 检查是否生成了结束token（与 generate_text 保持一致）
                 if eos_token_id is not None:
-                    # 检查是否所有批次都生成了EOS token
-                    if torch.all(next_token.squeeze(-1) == eos_token_id):
+                    # 对于单样本情况，使用 item() 检查（与 generate_text 一致）
+                    if next_token.item() == eos_token_id:
                         break
+                
+                # Step 7: 将新生成的token追加到序列中
+                generated_tokens = torch.cat([generated_tokens, next_token], dim=1)
             
             return generated_tokens
     
     def _apply_top_p_filtering(self, logits: torch.Tensor, top_p: float) -> torch.Tensor:
         """
-        应用top-p（nucleus）采样过滤。
+        应用top-p（nucleus）采样过滤（与 decode.py 中的 top_p_filtering 保持一致）。
         
         保留累积概率达到top_p的最高概率token，将其他token的logits设为负无穷。
         
@@ -240,35 +293,39 @@ class TransformerLM(nn.Module):
         Returns:
             过滤后的logits张量，形状不变
         """
-        # 将logits转换为概率分布
-        probs = torch.softmax(logits, dim=-1)
+        # No filtering needed if top_p is 1.0
+        if top_p >= 1.0:
+            return logits
         
-        # 按概率降序排序
+        # 1. Compute probabilities via softmax
+        probs = F.softmax(logits, dim=-1)
+        
+        # 2. Sort probabilities in descending order
         sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
         
-        # 计算累积概率
+        # 3. Compute cumulative probabilities
         cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
         
-        # 找到累积概率超过top_p的位置
-        # 保留第一个超过阈值的token（确保至少有一个token可选）
+        # 4. Find tokens to remove (cumulative probability > top_p)
+        # We want to keep tokens until cumsum >= top_p
+        # But we need to include the token that pushes us over the threshold
+        # So we mask tokens where cumsum > top_p AND it's not the first token to exceed
         sorted_indices_to_remove = cumulative_probs > top_p
+        
+        # Keep at least the first token (highest probability)
+        # Shift the mask to the right to keep the first token that exceeds threshold
         sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-        sorted_indices_to_remove[..., 0] = False  # 始终保留概率最高的token
+        sorted_indices_to_remove[..., 0] = False
         
-        # 将需要移除的token的概率设置为0
-        sorted_probs[sorted_indices_to_remove] = 0.0
+        # 5. Create a mask in the original (unsorted) order
+        # Scatter the removal mask back to original indices
+        indices_to_remove = sorted_indices_to_remove.scatter(
+            dim=-1, index=sorted_indices, src=sorted_indices_to_remove
+        )
         
-        # 将排序后的概率映射回原始顺序
-        filtered_probs = torch.zeros_like(probs)
-        filtered_probs.scatter_(1, sorted_indices, sorted_probs)
-        
-        # 重新归一化概率（避免数值不稳定）
-        filtered_probs = filtered_probs / (filtered_probs.sum(dim=-1, keepdim=True) + 1e-8)
-        
-        # 将概率转换回logits（用于后续采样）
-        # 使用log避免数值下溢，对于概率为0的位置设置为负无穷
-        filtered_logits = torch.log(filtered_probs + 1e-8)
-        filtered_logits[filtered_probs == 0] = float('-inf')
+        # 6. Apply the mask (set filtered logits to -inf)
+        filtered_logits = logits.clone()
+        filtered_logits[indices_to_remove] = float('-inf')
         
         return filtered_logits
     
