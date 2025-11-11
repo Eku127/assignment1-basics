@@ -33,8 +33,8 @@ USE_ROPE="${USE_ROPE:-true}"
 # ============================================================================
 # GENERATION PARAMETERS
 # ============================================================================
-PROMPT="${PROMPT:-Tim is really awful}"
-MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-100}"
+PROMPT="${PROMPT:-Once upon a time}"
+MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-1000}"
 TEMPERATURE="${TEMPERATURE:-1.0}"
 TOP_P="${TOP_P:-0.92}"
 EOS_TOKEN="${EOS_TOKEN:-<|endoftext|>}"

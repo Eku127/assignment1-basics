@@ -38,7 +38,7 @@ MAX_STEPS="${MAX_STEPS:-$((327680000 / (BATCH_SIZE * CONTEXT_LENGTH)))}"
 LEARNING_RATE="${LEARNING_RATE:-3e-3}"
 MIN_LR="${MIN_LR:-0.00001}"
 # Warmup steps: 10% of total training steps
-WARMUP_STEPS="${WARMUP_STEPS:-0}"
+WARMUP_STEPS="${WARMUP_STEPS:-$((MAX_STEPS / 10))}"
 BETA1="${BETA1:-0.9}"
 BETA2="${BETA2:-0.999}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
@@ -59,7 +59,7 @@ LR_STR=$(echo "$LEARNING_RATE" | sed 's/^0\./0p/g' | sed 's/\./p/g')
 BETA_STR="${BETA1}-${BETA2}"
 WD_STR=$(echo "$WEIGHT_DECAY" | sed 's/^0\./0p/g' | sed 's/\./p/g')
 # Create checkpoint name variable
-RUN_NAME="lr${LR_STR}_bs${BATCH_SIZE}_layers${NUM_LAYERS}_heads${NUM_HEADS}_d${D_MODEL}_warmup${WARMUP_STEPS}_post_norm"
+RUN_NAME="lr${LR_STR}_bs${BATCH_SIZE}_layers${NUM_LAYERS}_heads${NUM_HEADS}_d${D_MODEL}_warmup${WARMUP_STEPS}_add_kvcache"
 CHECKPOINT_DIR="${CHECKPOINT_BASE_DIR}/${RUN_NAME}"
 
 # ============================================================================

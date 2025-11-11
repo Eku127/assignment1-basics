@@ -74,7 +74,7 @@ def get_batch(
     # 3. Extract targets: targets[i] = data[start+1:start+context_length+1]
     # 4. Convert to PyTorch tensors and move to device
     # 5. Return (inputs, targets)
-
+    
     # randomly sample B starting positions from [0, n - context_length)
     start_positions = np.random.randint(0, len(data) - context_length, batch_size)
 
